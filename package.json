@@ -1,9 +1,10 @@
 {
   "dependencies": {
-    "tsdoc": "^0.0.4",
+    "@microsoft/tsdoc": "^0.12.20",
+    "chalk": "^4.1.0",
     "typescript": "^3.9.7"
   },
-  "scripts":{
-    "watch":"tsc --watch"
+  "scripts": {
+    "watch": "tsc --watch"
   }
 }
