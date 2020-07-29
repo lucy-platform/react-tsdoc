@@ -251,8 +251,7 @@ function start(root: string) {
 
 function main() {
     let args = process.argv;
-    // let rootFile = args[2];
-    let rootFile = '/Users/shivanan/eutech/uxp/src/index.tsx';
+    let rootFile = args[2];
     start(rootFile);
 }
 main();
