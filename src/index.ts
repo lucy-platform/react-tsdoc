@@ -244,7 +244,7 @@ function start(root: string) {
         }
     }
     let docs = generateDocObject(docInfo);
-    console.log(docs);
+    console.log(JSON.stringify(docs));
 
 }
 
