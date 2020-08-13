@@ -3,7 +3,10 @@ import * as fs from 'fs';
 import * as ts from 'typescript';
 import chalk from 'chalk';
 import { DocNode } from '@microsoft/tsdoc';
-
+enum ComponentFlags {
+    None = 0,
+    Export = 1 << 0,
+}
 
 function logCompilerMessage(message:string) {
     console.log(chalk.gray(`[TypeScript] ${message}`));
@@ -30,6 +33,7 @@ interface IInterfaceDeclaration {
     name: string;
     comment: string;
     members: IInterfaceMember[];
+    code: string;
 }
 interface IReactComponent {
     name: string;
@@ -64,6 +68,12 @@ interface IComponentDocumentation {
      * Docs for individual properties
      */
     props: IComponentPropDocumentation[];
+
+    /**
+     * Any custom @-attribute flags set on the component
+     */
+    flags:ComponentFlags;
+
 }
 
 /**
@@ -88,11 +98,23 @@ function extractActualContentFromDocMess(node:tsdoc.DocNode):string {
     }
     return result;
 }
-function parseTSDocComment(comment: string): [string, IExample[]] {
-    let parser = new tsdoc.TSDocParser();
+function parseTSDocComment(comment: string): [string, IExample[],ComponentFlags] {
+    let config = new tsdoc.TSDocConfiguration();
+
+    config.addTagDefinition(
+        new tsdoc.TSDocTagDefinition({
+            tagName:'@export',
+            syntaxKind:tsdoc.TSDocTagSyntaxKind.ModifierTag,
+            allowMultiple:false
+        } )
+    );
+
+    let parser = new tsdoc.TSDocParser(config);
+
     let ctx = parser.parseString(comment);
     let summary = extractActualContentFromDocMess(ctx.docComment.summarySection);
     let examples:IExample[] = [];
+    let props:ComponentFlags = ComponentFlags.None;
     for(const block of ctx.docComment.customBlocks) {
         if (block.blockTag.tagName == '@example') {
             let example = {summary:extractActualContentFromDocMess(block.content)};
@@ -100,7 +122,8 @@ function parseTSDocComment(comment: string): [string, IExample[]] {
 
         }
     }
-    return [summary,examples];
+    let flags:ComponentFlags = ctx.docComment.modifierTagSet.hasTagName('@export') ? ComponentFlags.Export : ComponentFlags.None;
+    return [summary,examples,flags];
 }
 function generatePropDocs(inf: IInterfaceDeclaration) {
     let results: IComponentPropDocumentation[] = [];
@@ -112,12 +135,23 @@ function generatePropDocs(inf: IInterfaceDeclaration) {
     }
     return results;
 }
+function generateComponentTypeDefinition(c:IReactComponent,interfaces:{[key:string]:IInterfaceDeclaration}) {
+    let code = "";
+    let inf = interfaces[c.propType];
+    if (inf) {
+        code += inf.comment + '\n';
+        code += inf.code + '\n';
+    }
+    code += c.comment + '\n';
+    code += `export const ${c.name} : React.FunctionalComponent<${c.propType}>;\n`
+    return code;
+}
 function generateDocObject(docInfo: IDocInfo): IComponentDocumentation[] {
     let results: IComponentDocumentation[] = [];
     for (let cn in docInfo.components) {
-        let componentDoc: IComponentDocumentation = { examples: [], name: cn, props: [], summary: '' };
+        let componentDoc: IComponentDocumentation = { examples: [], name: cn, props: [], summary: '' ,flags:ComponentFlags.None};
         let componentInfo = docInfo.components[cn];
-        [componentDoc.summary,componentDoc.examples] = parseTSDocComment(componentInfo.comment);
+        [componentDoc.summary,componentDoc.examples,componentDoc.flags] = parseTSDocComment(componentInfo.comment);
 
         let propType = docInfo.interfaces[componentInfo.propType];
         if (!!propType) {
@@ -136,11 +170,14 @@ function extractComment(node: ts.Node) {
     if (!comments) return '';
     return comments!.map(c => fullText.slice(c.pos, c.end)).join('\n');
 }
+function getCode(node:ts.Node) {
+    return node.getSourceFile().getFullText().substring(node.getStart(),node.getEnd());
+}
 function parseInterfaceDeclaration(node: ts.Node, docInfo: IDocInfo) {
     let name = (node as any).name.getText();
     let members = (node as any).members;
     let docs = extractComment(node);
-    let inf: IInterfaceDeclaration = { comment: docs, members: [], name: name };
+    let inf: IInterfaceDeclaration = { comment: docs, members: [], name: name ,code:getCode(node)};
     for (let i = 0; i < members.length; i++) {
         let member = members[i];
         let name = member.name.getText();
@@ -244,7 +281,26 @@ function start(root: string) {
         }
     }
     let docs = generateDocObject(docInfo);
-    console.log(JSON.stringify(docs));
+    
+    for(let i in docs) {
+        let doc = docs[i];
+        if (ComponentFlags.Export === (doc.flags & ComponentFlags.Export)) {
+            let component = docInfo.components[doc.name];
+            let code = generateComponentTypeDefinition(component,docInfo.interfaces);
+            console.log(code);
+        }
+    }
+/*
+    for(let i in docInfo.components) {
+        let c = docInfo.components[i];
+        let inf = docInfo.interfaces[c.propType];
+        if (!!inf) {
+            console.log(inf.comment);
+            console.log(inf.code);
+        }
+        console.log(c.comment);
+        console.log(`export const ${c.name} : React.FunctionComponent<${c.propType}>;`)
+    }*/
 
 }
 
