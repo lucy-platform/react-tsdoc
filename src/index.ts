@@ -31,29 +31,30 @@ function indentCode(code:string,chars:string) {
 interface IExportModuleOptions {
     moduleName: string;
 }
-type IType = IInterfaceDeclaration | ITypeLiteral | IFunctionSignature;
-interface ITypeAlias {
-    name: string;
-    type: IType;
-}
-interface ITypeLiteral {
-    name: string;
+
+interface ITypeDefinition {
+    comment:string;
 }
 
 interface IFunctionParam {
     name: string;
-    type: IType;
+    type: string;
 }
-interface IFunctionSignature {
+interface IFunctionSignature extends ITypeDefinition {
     parameters:IFunctionParam[];
-    return:IType;
+    return:string;
+    code: string;
+}
+interface IUnion extends ITypeDefinition{
+    items:string[];
+    code: string;
 }
 interface IInterfaceMember {
     name: string;
     type: string;
     comment: string;
 }
-interface IInterfaceDeclaration {
+interface IInterfaceDeclaration extends ITypeDefinition {
     name: string;
     comment: string;
     members: IInterfaceMember[];
@@ -64,19 +65,43 @@ interface IReactComponent {
     propType: string;
     comment: string;
 }
-
+interface IReactHookParam {
+    name: string;
+    type: string;
+}
 interface IReactHook {
     name: string;
-    code: string;
+    type:string;
+    parameters:IReactHookParam[];
+    comment:string;
 }
 interface IDocInfo {
     interfaces: { [key: string]: IInterfaceDeclaration };
     components: { [key: string]: IReactComponent };
     hooks: { [key: string]: IReactHook };
+    functions:{[key:string]:IFunctionSignature};
+    unions:{[key:string]:IUnion};
+
 }
 interface IExample {
     summary: string;
     
+}
+interface ITypeDocumentation {
+    name: string;
+    type: 'interface' | 'function' |'union';
+    summary: string;
+    examples:IExample[];
+    code:string;
+    flags:ComponentFlags;
+
+}
+
+interface IHookDocumentation {
+    name: string;
+    summary: string;
+    examples:IExample[];
+    flags:ComponentFlags;
 }
 interface IComponentDocumentation {
     /**
@@ -104,6 +129,11 @@ interface IComponentDocumentation {
      */
     flags:ComponentFlags;
 
+}
+interface IDocObject {
+    components:IComponentDocumentation[];
+    hooks:IHookDocumentation[];
+    types:ITypeDocumentation[];
 }
 
 /**
@@ -182,6 +212,9 @@ function generatePropDocs(inf: IInterfaceDeclaration) {
     }
     return results;
 }
+function generateHookTypeDefinition(hook:IReactHook) {
+    return `export const ${hook.name}:${hook.type};`;
+}
 function generateComponentTypeDefinition(c:IReactComponent,interfaces:{[key:string]:IInterfaceDeclaration}) {
     let code = "";
     let inf = interfaces[c.propType];
@@ -193,8 +226,33 @@ function generateComponentTypeDefinition(c:IReactComponent,interfaces:{[key:stri
     code += `export const ${c.name} : React.FunctionalComponent<${c.propType}>;\n`
     return code;
 }
-function generateDocObject(docInfo: IDocInfo): IComponentDocumentation[] {
-    let results: IComponentDocumentation[] = [];
+function fillRelatedTypes(t:string,types:any,docInfo:IDocInfo) {
+    if (docInfo.interfaces[t]) {
+        types[t] = 1;
+        let inf = docInfo.interfaces[t];
+        for(let m of inf.members) {
+            fillRelatedTypes(m.comment,types,docInfo);
+        }
+        return;
+    }
+    if (docInfo.unions[t]) {
+        types[t] = 1;
+        return;
+    }
+    if (docInfo.functions[t]) {
+        let f = docInfo.functions[t];
+        types[t] = 1;
+        fillRelatedTypes(f.return,types,docInfo);
+        for(let p of f.parameters) {
+            let pt = p.type;
+            fillRelatedTypes(pt,types,docInfo);
+        }
+    }
+
+}
+function generateDocObject(docInfo: IDocInfo): IDocObject {
+    let components: IComponentDocumentation[] = [];
+    //let typesToExport:any = {};
     for (let cn in docInfo.components) {
         let componentDoc: IComponentDocumentation = { examples: [], name: cn, props: [], summary: '' ,flags:ComponentFlags.None};
         let componentInfo = docInfo.components[cn];
@@ -204,11 +262,51 @@ function generateDocObject(docInfo: IDocInfo): IComponentDocumentation[] {
         if (!!propType) {
             componentDoc.props = generatePropDocs(propType)
         }
+        //typesToExport[componentInfo.propType] = 1;
 
-        results.push(componentDoc);
+        components.push(componentDoc);
 
     }
-    return results;
+    let hooks:IHookDocumentation[] = [];
+    for(let hi in docInfo.hooks) {
+        let hook = docInfo.hooks[hi];
+        let hookDoc:IHookDocumentation = {name:hook.name,flags:ComponentFlags.None,summary:'',examples:[]};
+        [hookDoc.summary,hookDoc.examples,hookDoc.flags] = parseTSDocComment(hook.comment);
+        let propType = docInfo.functions[hook.type];
+        // if (!!propType) {
+        //     typesToExport[hook.type] = 1;
+        // }
+        hooks.push(hookDoc);
+    }
+    //console.log(typesToExport);
+    // for(let k of Object.keys(typesToExport)) {
+    //     fillRelatedTypes(k,typesToExport,docInfo);
+    // }
+    let types:ITypeDocumentation[] = [];
+    for(let k of Object.keys(docInfo.interfaces)) {
+        let inf = docInfo.interfaces[k];
+        let typeDoc:ITypeDocumentation = { examples:[],name:inf.name,summary:'',type:'interface',code:'',flags:ComponentFlags.None};
+        typeDoc.code = inf.code;
+        [typeDoc.summary,typeDoc.examples,typeDoc.flags] = parseTSDocComment(inf.comment);
+        types.push(typeDoc);
+    }
+    for(let k of Object.keys(docInfo.functions)) {
+        let inf = docInfo.functions[k];
+        let typeDoc:ITypeDocumentation = { examples:[],name:k,summary:'',type:'function',code:'',flags:ComponentFlags.None};
+        typeDoc.code = inf.code;
+        [typeDoc.summary,typeDoc.examples,typeDoc.flags] = parseTSDocComment(inf.comment);
+        types.push(typeDoc);
+    }
+    for(let k of Object.keys(docInfo.unions)) {
+        let inf = docInfo.unions[k];
+        let typeDoc:ITypeDocumentation = { examples:[],name:k,summary:'',type:'union',code:'',flags:ComponentFlags.None};
+        typeDoc.code = inf.code;
+        [typeDoc.summary,typeDoc.examples,typeDoc.flags] = parseTSDocComment(inf.comment);
+        types.push(typeDoc);
+    }
+    
+
+    return {components,hooks,types};
 }
 
 function extractComment(node: ts.Node) {
@@ -246,9 +344,12 @@ function parseInterfaceDeclaration(node: ts.Node, docInfo: IDocInfo) {
 function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo) {
 
     let type = (node as any).type?.typeName?.getText();
-    if (type.kind == ts.SyntaxKind.CallSignature || 
-        type.kind == ts.SyntaxKind.FunctionType
+    if ((node as any)?.type?.kind == ts.SyntaxKind.CallSignature || 
+        (node as any)?.type?.kind == ts.SyntaxKind.FunctionType
         )
+        {
+            console.log('dug');
+        }
     if (!type) {
         return;
     }
@@ -261,6 +362,9 @@ function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo) {
     }
     if (name.startsWith('use')) {
         let comment = extractComment(node.parent);
+        let parameters:IReactHookParam[] = [];
+
+        docInfo.hooks[name] = {name,type,parameters,comment};
     }
 }
 function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo) {
@@ -276,6 +380,33 @@ function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo) {
 function parseTypeAlias(node:ts.Node,docInfo:IDocInfo) {
     let name = (node as any).name.getText();
     let type = (node as any).type;
+    if (type.kind == ts.SyntaxKind.FunctionType) {
+        let returnType = type.getText();
+        let parameters = type.parameters;
+        let comment = extractComment(node);
+        let code = getCode(node);
+        let f:IFunctionSignature = {parameters:[],return:returnType,comment,code};
+        for(let p=0;p<parameters.length;p++) {
+            let parameter = parameters[p];
+            let fp:IFunctionParam = {name:parameter.name.getText(),type:parameter.type.getText()};
+            f.parameters.push(fp);
+
+        }
+        docInfo.functions[name] = f;
+        return;
+    }
+    if (type.kind == ts.SyntaxKind.UnionType) {
+        let types = type.types;
+        let comment = extractComment(node);
+        let code = getCode(node);
+        let u:IUnion = {items:[],comment,code};
+
+        for(let p=0;p<types.length;p++) {
+            let txt = types[p].getText();
+            u.items.push(txt);
+        }
+        docInfo.unions[name] = u;
+    }
 }
 
 function walkTree(node: ts.Node, docInfo: IDocInfo) {
@@ -328,18 +459,43 @@ function getSources(program: ts.Program) {
     }).map(f => f.fileName);
 }
 
-function generateExportModule(docs:IComponentDocumentation[],docInfo:IDocInfo,options:IExportModuleOptions) {
+function generateExportModule(docs:IDocObject,docInfo:IDocInfo,options:IExportModuleOptions) {
     let code = '';
     if (options?.moduleName) {
         code += `declare module "${options.moduleName}" {\n`;
     }
-    for(let i in docs) {
-        let doc = docs[i];
+    for(let i in docs.types) {
+        let obj = docs.types[i];
+        let comment = '';
+        if (docInfo.interfaces[obj.name]) {
+            comment = docInfo.interfaces[obj.name].comment;
+        }
+        if (docInfo.functions[obj.name]) {
+            comment = docInfo.functions[obj.name].comment;
+        }
+        if (docInfo.unions[obj.name]) {
+            comment = docInfo.unions[obj.name].comment;
+        }
+        if (ComponentFlags.Export === (obj.flags & ComponentFlags.Export)) {
+            code += indentCode('\n' + comment + '\n' +  obj.code+'\n','    ');
+        }
+    }
+    for(let i in docs.components) {
+        let doc = docs.components[i];
         if (ComponentFlags.Export === (doc.flags & ComponentFlags.Export)) {
             let component = docInfo.components[doc.name];
             let componentCode = generateComponentTypeDefinition(component,docInfo.interfaces);
             code += indentCode(componentCode,'    ');
         }
+    }
+    for(let i in docs.hooks) {
+        let doc = docs.hooks[i];
+        if (ComponentFlags.Export === (doc.flags & ComponentFlags.Export)) {
+            let hook = docInfo.hooks[doc.name];
+            let hookCode = generateHookTypeDefinition(hook);
+            code += indentCode(hookCode,'    ');
+        }
+
     }
     code += "\n}\n";
     return code;
@@ -356,7 +512,7 @@ function start(root: string) {
     validateProgram(program);
     logDebug('Validated');
     let sources = getSources(program);
-    let docInfo: IDocInfo = { interfaces: {}, components: {},hooks:{} };
+    let docInfo: IDocInfo = { interfaces: {}, components: {},hooks:{},functions:{},unions:{} };
     for (var i = 0; i < sources.length; i++) {
         let source = sources[i];
         logDebug('Loading', source);
