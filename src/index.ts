@@ -6,6 +6,7 @@ import { DocNode } from '@microsoft/tsdoc';
 enum ComponentFlags {
     None = 0,
     Export = 1 << 0,
+    Hook = 1 << 1,
 }
 
 function logCompilerMessage(message:string) {
@@ -23,7 +24,30 @@ function logWarning(...objects:any[]) {
 function logError(...objects:any[]) {
     console.log(chalk.redBright(...objects));
 }
+function indentCode(code:string,chars:string) {
+    let lines = code.split('\n').map(line => line.trimRight());
+    return lines.map(line => chars + line).join('\n');
+}
+interface IExportModuleOptions {
+    moduleName: string;
+}
+type IType = IInterfaceDeclaration | ITypeLiteral | IFunctionSignature;
+interface ITypeAlias {
+    name: string;
+    type: IType;
+}
+interface ITypeLiteral {
+    name: string;
+}
 
+interface IFunctionParam {
+    name: string;
+    type: IType;
+}
+interface IFunctionSignature {
+    parameters:IFunctionParam[];
+    return:IType;
+}
 interface IInterfaceMember {
     name: string;
     type: string;
@@ -40,9 +64,15 @@ interface IReactComponent {
     propType: string;
     comment: string;
 }
+
+interface IReactHook {
+    name: string;
+    code: string;
+}
 interface IDocInfo {
     interfaces: { [key: string]: IInterfaceDeclaration };
     components: { [key: string]: IReactComponent };
+    hooks: { [key: string]: IReactHook };
 }
 interface IExample {
     summary: string;
@@ -109,6 +139,14 @@ function parseTSDocComment(comment: string): [string, IExample[],ComponentFlags]
         } )
     );
 
+    config.addTagDefinition(
+        new tsdoc.TSDocTagDefinition({
+            tagName:'@hook',
+            syntaxKind:tsdoc.TSDocTagSyntaxKind.ModifierTag,
+            allowMultiple:false
+        } )
+    );
+
     let parser = new tsdoc.TSDocParser(config);
 
     let ctx = parser.parseString(comment);
@@ -122,7 +160,16 @@ function parseTSDocComment(comment: string): [string, IExample[],ComponentFlags]
 
         }
     }
-    let flags:ComponentFlags = ctx.docComment.modifierTagSet.hasTagName('@export') ? ComponentFlags.Export : ComponentFlags.None;
+    let flags:ComponentFlags =  ComponentFlags.None;
+
+    if (ctx.docComment.modifierTagSet.hasTagName('@export')) {
+        flags = flags | ComponentFlags.Export;
+    } 
+
+    if (ctx.docComment.modifierTagSet.hasTagName('@hook')) {
+        flags = flags | ComponentFlags.Hook;
+    }
+
     return [summary,examples,flags];
 }
 function generatePropDocs(inf: IInterfaceDeclaration) {
@@ -173,9 +220,17 @@ function extractComment(node: ts.Node) {
 function getCode(node:ts.Node) {
     return node.getSourceFile().getFullText().substring(node.getStart(),node.getEnd());
 }
+function parseFunctionSignature(node:ts.Node,docInfo:IDocInfo) {
+
+}
 function parseInterfaceDeclaration(node: ts.Node, docInfo: IDocInfo) {
+
     let name = (node as any).name.getText();
     let members = (node as any).members;
+    if (members.length==1 && members[0].kind == ts.SyntaxKind.CallSignature) {
+        return parseFunctionSignature(members[0],docInfo);
+    }
+
     let docs = extractComment(node);
     let inf: IInterfaceDeclaration = { comment: docs, members: [], name: name ,code:getCode(node)};
     for (let i = 0; i < members.length; i++) {
@@ -191,14 +246,21 @@ function parseInterfaceDeclaration(node: ts.Node, docInfo: IDocInfo) {
 function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo) {
 
     let type = (node as any).type?.typeName?.getText();
+    if (type.kind == ts.SyntaxKind.CallSignature || 
+        type.kind == ts.SyntaxKind.FunctionType
+        )
     if (!type) {
         return;
     }
+    let name = (node as any).name.getText() as string;
     if (type == 'React.FunctionComponent') {
-        let name = (node as any).name.getText();
         let propType = (node as any).type.typeArguments[0].getText();
         let comment = extractComment(node.parent);
         docInfo.components[name] = { comment, propType, name };
+        return;
+    }
+    if (name.startsWith('use')) {
+        let comment = extractComment(node.parent);
     }
 }
 function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo) {
@@ -211,9 +273,16 @@ function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo) {
 
     }
 }
+function parseTypeAlias(node:ts.Node,docInfo:IDocInfo) {
+    let name = (node as any).name.getText();
+    let type = (node as any).type;
+}
 
 function walkTree(node: ts.Node, docInfo: IDocInfo) {
     switch (node.kind) {
+        case ts.SyntaxKind.TypeAliasDeclaration:
+            parseTypeAlias(node,docInfo);
+            break;
         case ts.SyntaxKind.InterfaceDeclaration:
             parseInterfaceDeclaration(node, docInfo);
             break;
@@ -223,6 +292,11 @@ function walkTree(node: ts.Node, docInfo: IDocInfo) {
         case ts.SyntaxKind.ClassDeclaration:
             parseClassDeclaration(node, docInfo);
             break;
+        case ts.SyntaxKind.FunctionDeclaration:
+            parseVariableDeclaration(node,docInfo);
+            break;
+
+        
 
     }
     node.forEachChild(child => walkTree(child, docInfo));
@@ -254,6 +328,23 @@ function getSources(program: ts.Program) {
     }).map(f => f.fileName);
 }
 
+function generateExportModule(docs:IComponentDocumentation[],docInfo:IDocInfo,options:IExportModuleOptions) {
+    let code = '';
+    if (options?.moduleName) {
+        code += `declare module "${options.moduleName}" {\n`;
+    }
+    for(let i in docs) {
+        let doc = docs[i];
+        if (ComponentFlags.Export === (doc.flags & ComponentFlags.Export)) {
+            let component = docInfo.components[doc.name];
+            let componentCode = generateComponentTypeDefinition(component,docInfo.interfaces);
+            code += indentCode(componentCode,'    ');
+        }
+    }
+    code += "\n}\n";
+    return code;
+}
+
 function start(root: string) {
     let options: ts.CompilerOptions = {
         jsx: ts.JsxEmit.React,
@@ -265,7 +356,7 @@ function start(root: string) {
     validateProgram(program);
     logDebug('Validated');
     let sources = getSources(program);
-    let docInfo: IDocInfo = { interfaces: {}, components: {} };
+    let docInfo: IDocInfo = { interfaces: {}, components: {},hooks:{} };
     for (var i = 0; i < sources.length; i++) {
         let source = sources[i];
         logDebug('Loading', source);
@@ -281,15 +372,10 @@ function start(root: string) {
         }
     }
     let docs = generateDocObject(docInfo);
+    let moduleCode = generateExportModule(docs,docInfo,{moduleName:'uxp/components'});
+    console.log(moduleCode);
     
-    for(let i in docs) {
-        let doc = docs[i];
-        if (ComponentFlags.Export === (doc.flags & ComponentFlags.Export)) {
-            let component = docInfo.components[doc.name];
-            let code = generateComponentTypeDefinition(component,docInfo.interfaces);
-            console.log(code);
-        }
-    }
+    
 /*
     for(let i in docInfo.components) {
         let c = docInfo.components[i];
