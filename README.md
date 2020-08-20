@@ -43,3 +43,7 @@ class Label2 extends React.Component<ILabelProps,{}> {
     }
 }
 ```
+
+## Commands
+react-tsdoc types <path-to-root-ts> <output.d.ts> --module-name <module-name>
+

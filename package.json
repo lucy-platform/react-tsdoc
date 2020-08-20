@@ -1,10 +1,34 @@
 {
+  "name": "@iviva/react-tsdoc",
+  "version": "0.0.2",
+  "description": "Tool to generate documentation and type definitions for your react component library",
+  "keywords": [
+    "react",
+    "documentation"
+  ],
+  "homepage": "https://github.com/lucy-platform/react-tsdoc",
   "dependencies": {
     "@microsoft/tsdoc": "^0.12.20",
     "chalk": "^4.1.0",
+    "clap": "^3.0.0-beta.1",
     "typescript": "^3.9.7"
   },
+  "bin": {
+    "react-tsdoc": "bin/react-tsdoc.js"
+  },
   "scripts": {
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "build": "tsc"
+  },
+  "main": "index.js",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucy-platform/react-tsdoc.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lucy-platform/react-tsdoc/issues"
   }
 }

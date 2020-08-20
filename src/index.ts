@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as ts from 'typescript';
 import chalk from 'chalk';
 import { DocNode } from '@microsoft/tsdoc';
+import clap from 'clap';
+
 enum ComponentFlags {
     None = 0,
     Export = 1 << 0,
@@ -10,7 +12,7 @@ enum ComponentFlags {
 }
 
 function logCompilerMessage(message:string) {
-    console.log(chalk.gray(`[TypeScript] ${message}`));
+    console.error(chalk.gray(`[TypeScript] ${message}`));
 }
 function logDebug(...objects:any[]) {
     console.log(chalk.gray(...objects));
@@ -223,7 +225,7 @@ function generateComponentTypeDefinition(c:IReactComponent,interfaces:{[key:stri
         code += inf.code + '\n';
     }
     code += c.comment + '\n';
-    code += `export const ${c.name} : React.FunctionalComponent<${c.propType}>;\n`
+    code += `export const ${c.name} : React.FunctionComponent<${c.propType}>;\n`
     return code;
 }
 function fillRelatedTypes(t:string,types:any,docInfo:IDocInfo) {
@@ -501,7 +503,7 @@ function generateExportModule(docs:IDocObject,docInfo:IDocInfo,options:IExportMo
     return code;
 }
 
-function start(root: string) {
+function load(root: string):[IDocInfo,IDocObject] {
     let options: ts.CompilerOptions = {
         jsx: ts.JsxEmit.React,
     };
@@ -528,8 +530,8 @@ function start(root: string) {
         }
     }
     let docs = generateDocObject(docInfo);
-    let moduleCode = generateExportModule(docs,docInfo,{moduleName:'uxp/components'});
-    console.log(moduleCode);
+    return [docInfo,docs];
+   
     
     
 /*
@@ -545,12 +547,45 @@ function start(root: string) {
     }*/
 
 }
+function generateTypeDefinition(root:string,outputPath:string,moduleName:string) {
+    
 
-
-function main() {
-    let args = process.argv;
-    let rootFile = args[2];
-    start(rootFile);
+    let [docInfo,docs] = load(root);
+    let moduleCode = generateExportModule(docs,docInfo,{moduleName:moduleName || 'module'});
+    fs.writeFileSync(outputPath,moduleCode);
 }
-main();
+
+export function main() {
+    try {
+        let cmd = clap
+        .command('react-tsdoc')
+        .description('Generate docs for React components')
+        .version('0.0.1')
+        ;
+        cmd.command('types [input.ts] [output.t.ds]')
+        .option('--module-name <name>')
+
+        
+        .action((actionArgs:{args:string[],options:any})=>{
+            let args = actionArgs.args || [];
+            let options = actionArgs.options || {};
+
+            generateTypeDefinition(
+            args[0],
+            args[1],
+            options.moduleName
+            );
+        })
+
+        ;
+      
+        cmd.run();
+    } catch(e) {
+        console.error(chalk.red(e));
+
+    }
+   
+
+}
+
 
