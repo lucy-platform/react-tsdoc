@@ -61,7 +61,7 @@ class MarkdownBuilder {
         }
         if (table.length==0) return;
         let headers = Object.keys(table[0]);
-        this.code += '|' + (headers.map(tableFormat).join('|') + '|\n';
+        this.code += '|' + (headers.map(tableFormat)).join('|') + '|\n';
         this.code += '|' + (headers.map(h=>'-')).join('|')+'|\n';
         for(let i in table) {
             let row = table[i];
