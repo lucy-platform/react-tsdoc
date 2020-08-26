@@ -30,6 +30,46 @@ function indentCode(code:string,chars:string) {
     let lines = code.split('\n').map(line => line.trimRight());
     return lines.map(line => chars + line).join('\n');
 }
+class MarkdownBuilder {
+    private code = "";
+    public addTitle(title:string,level:1|2|3|4) {
+        let headerChar = '#';
+        let prefix = '';
+        for(let i=0;i<level;i++) {
+            prefix += headerChar;
+        }
+        this.code += headerChar +' ' + title+'\n\n';
+    }
+    public addParagraph(p:string) {
+        
+        this.code += '\n\n' + p + '\n\n';
+    }
+
+    public addCode(code:string) {
+        code = code.trim();
+        if (code.startsWith('```')) {
+            code = code.substring(3);
+        }
+        if (code.endsWith('```')) {
+            code = code.substring(0,code.length-3);
+        }
+        this.code += '\n\n```' + code + '\n```\n\n'
+    }
+    public addTable(table:any[]) {
+        if (table.length==0) return;
+        let headers = Object.keys(table[0]);
+        this.code += '|' + headers.join('|') + '|\n';
+        for(let i in table) {
+            let row = table[i];
+            this.code += '|' + (headers.map(h=>'-')).join('|')+'|\n';
+            this.code += '|' + (headers.map(h => row[h])).join('|') + '|\n';
+        }
+    
+    }
+    public toString() {
+        return this.code;
+    }
+}
 interface IExportModuleOptions {
     moduleName: string;
 }
@@ -479,7 +519,7 @@ function generateExportModule(docs:IDocObject,docInfo:IDocInfo,options:IExportMo
             comment = docInfo.unions[obj.name].comment;
         }
         if (ComponentFlags.Export === (obj.flags & ComponentFlags.Export)) {
-            code += indentCode('\n' + comment + '\n' +  obj.code+'\n','    ');
+            code += indentCode('\n' + comment + '\n' +  'export ' + obj.code+'\n','    ');
         }
     }
     for(let i in docs.components) {
@@ -547,6 +587,40 @@ function load(root: string):[IDocInfo,IDocObject] {
     }*/
 
 }
+function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
+    let md =new MarkdownBuilder();
+    md.addTitle(cdoc.name,1)
+    md.addParagraph(cdoc.summary);
+    md.addTitle('Installation',2);
+    md.addCode(`import {${cdoc.name}} from 'uxp/components';`);
+    md.addTitle('Properties',2);
+    for(let i in cdoc.props) {
+        let prop = cdoc.props[i];
+        md.addTitle(prop.name,3);
+        md.addParagraph(prop.summary);
+        md.addTable([{'type':prop.type}]);
+
+        for(let j in prop.examples) {
+            md.addTitle(`Example ${j+1}`,4);
+            md.addCode(prop.examples[j].summary);
+        }
+    }
+    for(let i in cdoc.examples) {
+        md.addTitle(`Example ${i+1}`,2);
+        md.addCode(cdoc.examples[i].summary)
+    }
+    return md.toString();
+}
+function generateDocs(root: string, outputPath:string) {
+    let [docInfo,docs] = load(root);
+    let components = docs.components;
+    for(let i in components) {
+        let md = generateComponentDoc(components[i],docs);
+        let path = outputPath + '/' + components[i].name + '.md';
+        console.log(chalk.gray('Writing component',components[i].name,'to',path));
+        fs.writeFileSync(path,md.toString());
+    }
+}
 function generateTypeDefinition(root:string,outputPath:string,moduleName:string) {
     
 
@@ -577,6 +651,13 @@ export function main() {
             );
         })
 
+        ;
+
+        cmd.command('docs [input.ts] [output-folder]')
+        .action((actionArgs:{args:string[],options:any})=>{
+            let {args,options} = actionArgs;
+            generateDocs(args[0],args[1]);
+        })
         ;
       
         cmd.run();
