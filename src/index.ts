@@ -38,7 +38,7 @@ class MarkdownBuilder {
         for(let i=0;i<level;i++) {
             prefix += headerChar;
         }
-        this.code += headerChar +' ' + title+'\n\n';
+        this.code += prefix +' ' + title+'\n\n';
     }
     public addParagraph(p:string) {
         
@@ -53,16 +53,19 @@ class MarkdownBuilder {
         if (code.endsWith('```')) {
             code = code.substring(0,code.length-3);
         }
-        this.code += '\n\n```' + code + '\n```\n\n'
+        this.code += '\n\n```tsx\n' + code.trim() + '\n```\n\n'
     }
     public addTable(table:any[]) {
+        const tableFormat = (s:string) => {
+            return s.replace(/\s+/g,' ').replace(/\|/g,'\\|');
+        }
         if (table.length==0) return;
         let headers = Object.keys(table[0]);
-        this.code += '|' + headers.join('|') + '|\n';
+        this.code += '|' + (headers.map(tableFormat).join('|') + '|\n';
+        this.code += '|' + (headers.map(h=>'-')).join('|')+'|\n';
         for(let i in table) {
             let row = table[i];
-            this.code += '|' + (headers.map(h=>'-')).join('|')+'|\n';
-            this.code += '|' + (headers.map(h => row[h])).join('|') + '|\n';
+            this.code += '|' + (headers.map(h => tableFormat(row[h]))).join('|') + '|\n';
         }
     
     }
@@ -594,9 +597,11 @@ function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
     md.addTitle('Installation',2);
     md.addCode(`import {${cdoc.name}} from 'uxp/components';`);
     md.addTitle('Properties',2);
+    md.addTable(cdoc.props.map(p => ({Name:p.name,Type:p.type,Description:p.summary})));
     for(let i in cdoc.props) {
         let prop = cdoc.props[i];
         md.addTitle(prop.name,3);
+        md.addParagraph('---');
         md.addParagraph(prop.summary);
         md.addTable([{'type':prop.type}]);
 
