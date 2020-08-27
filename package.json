@@ -1,6 +1,6 @@
 {
   "name": "@iviva/react-tsdoc",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Tool to generate documentation and type definitions for your react component library",
   "keywords": [
     "react",
