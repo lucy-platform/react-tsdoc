@@ -596,6 +596,12 @@ function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
     md.addParagraph(cdoc.summary);
     md.addTitle('Installation',2);
     md.addCode(`import {${cdoc.name}} from 'uxp/components';`);
+    if (cdoc.examples.length > 0) {
+        md.addTitle('Examples',2);
+        for(let i in cdoc.examples) {
+            md.addCode(cdoc.examples[i].summary)
+        }
+    }
     md.addTitle('Properties',2);
     md.addTable(cdoc.props.map(p => ({Name:p.name,Type:p.type,Description:p.summary})));
     for(let i in cdoc.props) {
@@ -606,24 +612,23 @@ function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
         md.addTable([{'type':prop.type}]);
 
         for(let j in prop.examples) {
-            md.addTitle(`Example ${j+1}`,4);
             md.addCode(prop.examples[j].summary);
         }
     }
-    for(let i in cdoc.examples) {
-        md.addTitle(`Example ${i+1}`,2);
-        md.addCode(cdoc.examples[i].summary)
-    }
+    
     return md.toString();
 }
 function generateDocs(root: string, outputPath:string) {
     let [docInfo,docs] = load(root);
     let components = docs.components;
     for(let i in components) {
-        let md = generateComponentDoc(components[i],docs);
-        let path = outputPath + '/' + components[i].name + '.md';
-        console.log(chalk.gray('Writing component',components[i].name,'to',path));
-        fs.writeFileSync(path,md.toString());
+        let component = components[i];
+        if (ComponentFlags.Export === (component.flags & ComponentFlags.Export)) {
+            let md = generateComponentDoc(component,docs);
+            let path = outputPath + '/' + component.name + '.md';
+            console.log(chalk.gray('Writing component',component.name,'to',path));
+            fs.writeFileSync(path,md.toString());
+        }
     }
 }
 function generateTypeDefinition(root:string,outputPath:string,moduleName:string) {
