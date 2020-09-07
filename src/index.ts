@@ -659,9 +659,9 @@ function generateDocs(root: string, outputPath:string) {
     let components = docs.components;
     if (outputPath.endsWith('/')) outputPath = outputPath.substring(0,outputPath.length-1);
 
-    mkdirp(outputPath + '/components/');
-    mkdirp(outputPath + '/types/');
-    mkdirp(outputPath + '/hooks/');
+    mkdirp.sync(outputPath + '/components/');
+    mkdirp.sync(outputPath + '/types/');
+    mkdirp.sync(outputPath + '/hooks/');
 
     for(let i in components) {
         let component = components[i];
