@@ -4,6 +4,7 @@ import * as ts from 'typescript';
 import chalk from 'chalk';
 import { DocNode } from '@microsoft/tsdoc';
 import clap from 'clap';
+import mkdirp from 'mkdirp';
 
 enum ComponentFlags {
     None = 0,
@@ -590,6 +591,41 @@ function load(root: string):[IDocInfo,IDocObject] {
     }*/
 
 }
+
+
+function generateHookDoc(cdoc:IHookDocumentation,docs:IDocObject) {
+    let md =new MarkdownBuilder();
+    md.addTitle(cdoc.name,1)
+    md.addParagraph(cdoc.summary);
+    md.addTitle('Installation',2);
+    md.addCode(`import {${cdoc.name}} from 'uxp/components';`);
+    if (cdoc.examples.length > 0) {
+        md.addTitle('Examples',2);
+        for(let i in cdoc.examples) {
+            md.addCode(cdoc.examples[i].summary)
+        }
+    }
+    
+    return md.toString();
+}
+
+function generateTypeDoc(cdoc:ITypeDocumentation,docs:IDocObject) {
+    let md =new MarkdownBuilder();
+    md.addTitle(cdoc.name,1)
+    md.addParagraph(cdoc.summary);
+    md.addCode(cdoc.code);
+    md.addTitle('Usage',2);
+    md.addCode(`import {${cdoc.name}} from 'uxp/components';`);
+    if (cdoc.examples.length > 0) {
+        md.addTitle('Examples',2);
+        for(let i in cdoc.examples) {
+            md.addCode(cdoc.examples[i].summary)
+        }
+    }
+    
+    
+    return md.toString();
+}
 function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
     let md =new MarkdownBuilder();
     md.addTitle(cdoc.name,1)
@@ -621,12 +657,38 @@ function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
 function generateDocs(root: string, outputPath:string) {
     let [docInfo,docs] = load(root);
     let components = docs.components;
+    if (outputPath.endsWith('/')) outputPath = outputPath.substring(0,outputPath.length-1);
+
+    mkdirp(outputPath + '/components/');
+    mkdirp(outputPath + '/types/');
+    mkdirp(outputPath + '/hooks/');
+
     for(let i in components) {
         let component = components[i];
         if (ComponentFlags.Export === (component.flags & ComponentFlags.Export)) {
             let md = generateComponentDoc(component,docs);
-            let path = outputPath + '/' + component.name + '.md';
+            let path = outputPath + '/components/' + component.name + '.md';
+
             console.log(chalk.gray('Writing component',component.name,'to',path));
+            fs.writeFileSync(path,md.toString());
+        }
+    }
+    for(let i in docs.types) {
+        let type = docs.types[i];
+        if (ComponentFlags.Export === (type.flags & ComponentFlags.Export)) {
+            let md = generateTypeDoc(type,docs);
+            let path = outputPath + '/types/' + type.name + '.md';
+            console.log(chalk.gray('Writing type',type.name,'to',path));
+            fs.writeFileSync(path,md.toString());
+        }
+    }
+
+    for(let i in docs.hooks) {
+        let hook = docs.hooks[i];
+        if (ComponentFlags.Export === (hook.flags & ComponentFlags.Export)) {
+            let md = generateHookDoc(hook,docs);
+            let path = outputPath + '/hooks/' + hook.name + '.md';
+            console.log(chalk.gray('Writing hook',hook.name,'to',path));
             fs.writeFileSync(path,md.toString());
         }
     }
