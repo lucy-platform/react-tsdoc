@@ -638,20 +638,23 @@ function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
             md.addCode(cdoc.examples[i].summary)
         }
     }
-    md.addTitle('Properties',2);
-    md.addTable(cdoc.props.map(p => ({Name:p.name,Type:p.type,Description:p.summary})));
-    for(let i in cdoc.props) {
-        let prop = cdoc.props[i];
-        md.addTitle(prop.name,3);
-        md.addParagraph('---');
-        md.addParagraph(prop.summary);
-        md.addTable([{'type':prop.type}]);
+    if (cdoc.props.length > 0) {
 
-        for(let j in prop.examples) {
-            md.addCode(prop.examples[j].summary);
+        md.addTitle('Properties',2);
+        md.addTable(cdoc.props.map(p => ({Name:p.name,Type:p.type,Description:p.summary})));
+        for(let i in cdoc.props) {
+            let prop = cdoc.props[i];
+            md.addTitle(prop.name,3);
+            md.addParagraph('---');
+            md.addParagraph(prop.summary);
+            md.addTable([{'type':prop.type}]);
+            
+            for(let j in prop.examples) {
+                md.addCode(prop.examples[j].summary);
+            }
         }
+        
     }
-    
     return md.toString();
 }
 function generateDocs(root: string, outputPath:string) {
