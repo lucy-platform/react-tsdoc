@@ -626,6 +626,12 @@ function generateTypeDoc(cdoc:ITypeDocumentation,docs:IDocObject) {
     
     return md.toString();
 }
+function linkedType(t: string, docs:IDocObject) {
+    if (docs.types.find(x => x.name.toUpperCase() == t.toUpperCase())) {
+        return `[${t}](types/${t})`;
+    }
+    return t;
+}
 function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
     let md =new MarkdownBuilder();
     md.addTitle(cdoc.name,1)
@@ -641,13 +647,13 @@ function generateComponentDoc(cdoc:IComponentDocumentation,docs:IDocObject) {
     if (cdoc.props.length > 0) {
 
         md.addTitle('Properties',2);
-        md.addTable(cdoc.props.map(p => ({Name:p.name,Type:p.type,Description:p.summary})));
+        md.addTable(cdoc.props.map(p => ({Name:p.name,Type:linkedType(p.type,docs),Description:p.summary})));
         for(let i in cdoc.props) {
             let prop = cdoc.props[i];
             md.addTitle(prop.name,3);
             md.addParagraph('---');
             md.addParagraph(prop.summary);
-            md.addTable([{'type':prop.type}]);
+            md.addTable([{'type':linkedType(prop.type,docs)}]);
             
             for(let j in prop.examples) {
                 md.addCode(prop.examples[j].summary);
