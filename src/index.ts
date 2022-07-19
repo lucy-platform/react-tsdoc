@@ -279,7 +279,7 @@ function generateComponentTypeDefinition(c: IReactComponent, interfaces: { [key:
             code += stateInf.code + '\n';
         }
     }
-    if(c.refType) {
+    if (c.refType) {
         let refInf = interfaces[c.refType];
         if (refInf) {
             code += refInf.comment + '\n';
@@ -296,7 +296,7 @@ function generateComponentTypeDefinition(c: IReactComponent, interfaces: { [key:
             code += `export class ${c.name} extends React.Component<${c.propType}, ${c.stateType || 'any'}> {}\n`
             break
         case 'forwardRef':
-            code += `export const ${c.name}:React.ForwardRefExoticComponent<${c.propType} & ${c.refType || 'React.RefAttributes<any>'}>;\n`
+            code += `export const ${c.name}:React.ForwardRefExoticComponent<${c.propType} & React.RefAttributes<${c.refType || 'any'}>>;\n`
             break
     }
 
@@ -448,6 +448,12 @@ function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo) {
             propType = parts[1]
             refType = parts[0]
         }
+
+        refType = refType
+            .replace('React.RefAttributes<', '')
+            .replace(">", '')
+            .trim()
+
 
         let comment = extractComment(node.parent);
         docInfo.components[name] = { comment, propType, refType, name, type: 'forwardRef' };
