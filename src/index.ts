@@ -109,7 +109,10 @@ interface IInterfaceDeclaration extends ITypeDefinition {
 interface IReactComponent {
     name: string;
     propType: string;
+    stateType?: string
+    refType?: string
     comment: string;
+    type?: 'class' | 'functional' | 'forwardRef'
 }
 interface IReactHookParam {
     name: string;
@@ -263,13 +266,40 @@ function generateHookTypeDefinition(hook: IReactHook) {
 }
 function generateComponentTypeDefinition(c: IReactComponent, interfaces: { [key: string]: IInterfaceDeclaration }) {
     let code = "";
+    let type = c.type || 'functional'
     let inf = interfaces[c.propType];
     if (inf) {
         code += inf.comment + '\n';
         code += inf.code + '\n';
     }
+    if (c.stateType) {
+        let stateInf = interfaces[c.stateType];
+        if (stateInf) {
+            code += stateInf.comment + '\n';
+            code += stateInf.code + '\n';
+        }
+    }
+    if(c.refType) {
+        let refInf = interfaces[c.refType];
+        if (refInf) {
+            code += refInf.comment + '\n';
+            code += refInf.code + '\n';
+        }
+    }
     code += c.comment + '\n';
-    code += `export const ${c.name} : React.FunctionComponent<${c.propType}>;\n`
+
+    switch (type) {
+        case 'functional':
+            code += `export const ${c.name} : React.FunctionComponent<${c.propType}>;\n`
+            break
+        case 'class':
+            code += `export class ${c.name} extends React.Component<${c.propType}, ${c.stateType || 'any'}> {}\n`
+            break
+        case 'forwardRef':
+            code += `export const ${c.name}:React.ForwardRefExoticComponent<${c.propType} & ${c.refType || 'React.RefAttributes<any>'}>;\n`
+            break
+    }
+
     return code;
 }
 function fillRelatedTypes(t: string, types: any, docInfo: IDocInfo) {
@@ -402,7 +432,25 @@ function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo) {
     if (type == 'React.FunctionComponent') {
         let propType = (node as any).type.typeArguments[0].getText();
         let comment = extractComment(node.parent);
-        docInfo.components[name] = { comment, propType, name };
+        docInfo.components[name] = { comment, propType, name, type: 'functional' };
+        return;
+    }
+    if (type == 'React.ForwardRefExoticComponent') {
+        let cType = (node as any).type.typeArguments[0].getText();
+        // get prop type and ref type 
+        // assume 
+        //  - props defined as following format  <PropType & RefType>
+        //  - RefType always starts with `React.RefAttributes`
+        let parts = (cType as string).split("&", 2).map(p => p.trim())
+        let propType = parts[0]
+        let refType = parts[1]
+        if (parts[0].startsWith('React.RefAttributes')) {
+            propType = parts[1]
+            refType = parts[0]
+        }
+
+        let comment = extractComment(node.parent);
+        docInfo.components[name] = { comment, propType, refType, name, type: 'forwardRef' };
         return;
     }
     if (name.startsWith('use')) {
@@ -414,11 +462,12 @@ function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo) {
 }
 function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo) {
     let className = (node as any)?.heritageClauses[0]?.types[0].expression.getText();
-    if (className = 'React.Component') {
+    if (className == 'React.Component') {
         let propType = (node as any).heritageClauses[0].types[0].typeArguments[0].getText();
+        let stateType = (node as any).heritageClauses[0].types[0].typeArguments[1].getText();
         let comment = extractComment(node);
         let name = (node as any).name.getText();
-        docInfo.components[name] = { comment, propType, name };
+        docInfo.components[name] = { comment, propType, name, stateType, type: 'class' };
 
     }
 }
@@ -469,13 +518,12 @@ function walkTree(node: ts.Node, docInfo: IDocInfo) {
             parseClassDeclaration(node, docInfo);
             break;
         case ts.SyntaxKind.FunctionDeclaration:
+        case 242:
             parseVariableDeclaration(node, docInfo);
             break;
 
-
-
     }
-    node.forEachChild(child => walkTree(child, docInfo));
+    node.forEachChild((child: any) => walkTree(child, docInfo));
 
 }
 function validateProgram(program: ts.Program) {
@@ -527,6 +575,7 @@ function generateExportModule(docs: IDocObject, docInfo: IDocInfo, options: IExp
     }
     for (let i in docs.components) {
         let doc = docs.components[i];
+
         if (ComponentFlags.Export === (doc.flags & ComponentFlags.Export)) {
             let component = docInfo.components[doc.name];
             let componentCode = generateComponentTypeDefinition(component, docInfo.interfaces);
