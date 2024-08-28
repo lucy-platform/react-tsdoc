@@ -60,7 +60,10 @@ class MarkdownBuilder {
         const tableFormat = (s: string) => {
             return s.replace(/\s+/g, ' ').replace(/\|/g, '\\|');
         }
-        if (table.length == 0) return;
+        if (table.length == 0) {
+            this.code += '\n\n'; 
+            return
+        }
         let headers = Object.keys(table[0]);
         this.code += '|' + (headers.map(tableFormat)).join('|') + '|\n';
         this.code += '|' + (headers.map(h => '-')).join('|') + '|\n';
@@ -68,6 +71,8 @@ class MarkdownBuilder {
             let row = table[i];
             this.code += '|' + (headers.map(h => tableFormat(row[h]))).join('|') + '|\n';
         }
+
+        this.code += '\n\n'
 
     }
     public toString() {
