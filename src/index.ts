@@ -687,7 +687,7 @@ function generateTypeDoc(cdoc: ITypeDocumentation, docs: IDocObject) {
 }
 function linkedType(t: string, docs: IDocObject) {
     if (docs.types.find(x => x.name.toUpperCase() == t.toUpperCase())) {
-        return `[${t}](types/${t})`;
+        return `[${t}](types/${t}.md)`;
     }
     return t;
 }
