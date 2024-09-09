@@ -61,7 +61,7 @@ class MarkdownBuilder {
             return s.replace(/\s+/g, ' ').replace(/\|/g, '\\|');
         }
         if (table.length == 0) {
-            this.code += '\n\n'; 
+            this.code += '\n\n';
             return
         }
         let headers = Object.keys(table[0]);
@@ -687,7 +687,7 @@ function generateTypeDoc(cdoc: ITypeDocumentation, docs: IDocObject) {
 }
 function linkedType(t: string, docs: IDocObject) {
     if (docs.types.find(x => x.name.toUpperCase() == t.toUpperCase())) {
-        return `[${t}](types/${t}.md)`;
+        return `../[${t}](types/${t}.md)`;
     }
     return t;
 }
