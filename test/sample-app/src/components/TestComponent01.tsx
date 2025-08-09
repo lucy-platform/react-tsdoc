@@ -55,6 +55,9 @@ const BaseComponent: FunctionComponent<TestComponent01Props> = (props) => {
  */
 export const MemorizedComponent = memo(BaseComponent);
 
+/**
+ * @export
+ */
 export const MemorizedForwardRefComponent = memo(TestComponent02);
 
 export default TestComponent01;

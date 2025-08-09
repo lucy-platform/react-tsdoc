@@ -1,4 +1,7 @@
-import TestComponent01 from "./components/TestComponent01";
+
+import React from 'react';
+import TestComponent01 from './components/TestComponent01';
+
 type TestFunction = () => void;
 
 interface ReturnType {
