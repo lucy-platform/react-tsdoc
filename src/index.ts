@@ -12,6 +12,11 @@ enum ComponentFlags {
     Hook = 1 << 1,
 }
 
+interface IExportInfo {
+    isDefault: boolean;
+    isNamed: boolean;
+}
+
 function logCompilerMessage(message: string) {
     console.error(chalk.gray(`[TypeScript] ${message}`));
 }
@@ -114,10 +119,13 @@ interface IInterfaceDeclaration extends ITypeDefinition {
 interface IReactComponent {
     name: string;
     propType: string;
-    stateType?: string
-    refType?: string
+    stateType?: string;
+    refType?: string;
     comment: string;
-    type?: 'class' | 'functional' | 'forwardRef'
+    type?: 'class' | 'functional' | 'forwardRef';
+    exportInfo?: IExportInfo;
+    wrappers?: string[];
+    referencedComponent?: string; // Add this to track component references
 }
 interface IReactHookParam {
     name: string;
@@ -135,8 +143,22 @@ interface IDocInfo {
     hooks: { [key: string]: IReactHook };
     functions: { [key: string]: IFunctionSignature };
     unions: { [key: string]: IUnion };
-
+    enums: { [key: string]: IEnumDeclaration }; // Add enum support
+    typeAliases: { [key: string]: ITypeAlias }; // Add type alias support
 }
+
+interface IEnumDeclaration extends ITypeDefinition {
+    name: string;
+    members: { name: string; value?: string }[];
+    code: string;
+}
+
+interface ITypeAlias extends ITypeDefinition {
+    name: string;
+    type: string;
+    code: string;
+}
+
 interface IExample {
     summary: string;
 
@@ -199,6 +221,63 @@ interface IComponentPropDocumentation {
     summary: string;
     examples: IExample[];
 }
+
+// Helper function to check if node has @export annotation
+function hasExportAnnotation(comment: string): boolean {
+    try {
+        const [, , flags] = parseTSDocComment(comment);
+        return (flags & ComponentFlags.Export) === ComponentFlags.Export;
+    } catch {
+        return false;
+    }
+}
+
+// Helper to get export info from node
+function getExportInfo(node: ts.Node): IExportInfo {
+    const sourceFile = node.getSourceFile();
+    const exportInfo: IExportInfo = { isDefault: false, isNamed: false };
+
+    // Check for export modifiers
+    if (node.modifiers) {
+        const hasExport = node.modifiers.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword);
+        const hasDefault = node.modifiers.some(mod => mod.kind === ts.SyntaxKind.DefaultKeyword);
+
+        if (hasExport && hasDefault) {
+            exportInfo.isDefault = true;
+        } else if (hasExport) {
+            exportInfo.isNamed = true;
+        }
+    }
+
+    // Check for export statements
+    sourceFile.forEachChild(child => {
+        if (ts.isExportAssignment(child) && child.isExportEquals === false) {
+            // export default X
+            if (ts.isIdentifier(child.expression)) {
+                const exportedName = child.expression.getText();
+                const nodeName = (node as any).name?.getText();
+                if (exportedName === nodeName) {
+                    exportInfo.isDefault = true;
+                }
+            }
+        }
+
+        if (ts.isExportDeclaration(child) && child.exportClause && ts.isNamedExports(child.exportClause)) {
+            // export { X }
+            for (const element of child.exportClause.elements) {
+                const exportedName = element.name.getText();
+                const nodeName = (node as any).name?.getText();
+                if (exportedName === nodeName) {
+                    exportInfo.isNamed = true;
+                }
+            }
+        }
+    });
+
+    return exportInfo;
+}
+
+
 function extractActualContentFromDocMess(node: tsdoc.DocNode): string {
     if (!node) {
         return "";
@@ -430,129 +509,150 @@ function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, checker: ts.
     const name = decl.name?.getText();
     if (!name) return;
 
-    // Comment is usually on the VariableStatement (parent.parent)
     const parentForComments = (decl.parent && decl.parent.parent) ? decl.parent.parent : node.parent;
     const comment = extractComment(parentForComments || node) || '';
+    const exportInfo = getExportInfo(parentForComments || node);
 
-    const safeText = (n?: ts.Node | null) => {
-        try { return n ? n.getText() : undefined; } catch { return undefined; }
-    };
+    // Only proceed if has @export annotation or is exported
+    if (!hasExportAnnotation(comment) && !exportInfo.isDefault && !exportInfo.isNamed) {
+        return;
+    }
 
-    // Check if explicitly declared as React component via type annotation
+    const init = decl.initializer;
     const declaredType = (decl as any).type as ts.TypeNode | undefined;
-    if (declaredType) {
-        const typeText = safeText(declaredType) || '';
+
+    // Handle explicit type annotations first
+    if (declaredType && !init) {
+        const typeText = declaredType.getText();
         const isExplicitComponent = /\b(React\.)?(FunctionComponent|FC|ForwardRefExoticComponent|Component)\b/.test(typeText);
 
         if (isExplicitComponent) {
-            // Extract prop and ref types from type annotation
             const propMatch = typeText.match(/<\s*([^>,]+)/);
             const refMatch = typeText.match(/RefAttributes\s*<\s*([^>]+)\s*>/);
 
-            // Don't overwrite if already exists
-            if (!docInfo.components[name]) {
-                docInfo.components[name] = {
-                    comment,
-                    propType: propMatch ? propMatch[1].trim() : 'any',
-                    refType: refMatch ? refMatch[1].trim() : undefined,
-                    name,
-                    type: /ForwardRefExoticComponent/.test(typeText) ? 'forwardRef' : 'functional'
-                } as IReactComponent;
-            }
+            docInfo.components[name] = {
+                comment,
+                propType: propMatch ? propMatch[1].trim() : 'any',
+                refType: refMatch ? refMatch[1].trim() : undefined,
+                name,
+                type: /ForwardRefExoticComponent/.test(typeText) ? 'forwardRef' : 'functional',
+                exportInfo
+            };
             return;
         }
     }
 
-    // Handle hooks - always capture if name starts with 'use'
-    if (name.startsWith('use')) {
-        if (!docInfo.hooks[name]) {
-            const parameters: IReactHookParam[] = [];
-            // Try to extract parameters from function type if available
-            const init = decl.initializer;
-            if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
-                if (init.parameters) {
-                    for (const param of init.parameters) {
-                        const pname = param.name?.getText() || 'arg';
-                        const ptype = param.type ? param.type.getText() : 'any';
-                        parameters.push({ name: pname, type: ptype });
-                    }
-                }
-            }
-            docInfo.hooks[name] = { name, type: 'function', parameters, comment };
-        }
-        // Don't return here - hooks can also be functions
-    }
-
-    const init = decl.initializer;
     if (!init) return;
 
-    // Unwrap wrappers like memo(forwardRef(...))
-    function unwrapCallWrappers(expr: ts.Expression): { inner: ts.Expression, wrappers: string[] } {
-        const wrappers: string[] = [];
-        let current: ts.Expression = expr;
+    // Handle hooks (name starts with 'use')
+    if (name.startsWith('use')) {
+        const parameters: IReactHookParam[] = [];
+        let hookReturnType = 'void';
 
-        while (ts.isCallExpression(current) && current.expression) {
-            const callee = current.expression.getText();
-            wrappers.push(callee);
-
-            if (current.arguments && current.arguments.length > 0) {
-                const firstArg = current.arguments[0];
-                if (ts.isFunctionExpression(firstArg) || ts.isArrowFunction(firstArg) ||
-                    ts.isCallExpression(firstArg) || ts.isIdentifier(firstArg) ||
-                    ts.isClassExpression(firstArg)) {
-                    current = firstArg;
-                    continue;
+        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+            if (init.parameters) {
+                for (const param of init.parameters) {
+                    const pname = param.name?.getText() || 'arg';
+                    const ptype = param.type ? param.type.getText() : 'any';
+                    parameters.push({ name: pname, type: ptype });
                 }
             }
-            break;
+
+            // Get return type from function
+            if (init.type) {
+                hookReturnType = init.type.getText();
+            } else if (declaredType) {
+                const typeText = declaredType.getText();
+                // Extract return type from function signature
+                const match = typeText.match(/\(\s*[^)]*\)\s*=>\s*(.+)$/);
+                hookReturnType = match ? match[1].trim() : 'void';
+            }
         }
-        return { inner: current, wrappers };
+
+        docInfo.hooks[name] = {
+            name,
+            type: hookReturnType,
+            parameters,
+            comment
+        };
+        return;
     }
 
+    // Analyze component patterns
+    const componentInfo = analyzeComponentPattern(init, name, comment, exportInfo, checker, docInfo);
+    if (componentInfo) {
+        docInfo.components[name] = componentInfo;
+        return;
+    }
+
+    // Handle regular functions with proper type extraction
+    if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+        const params: IFunctionParam[] = [];
+        if (init.parameters) {
+            for (const param of init.parameters) {
+                const pname = param.name?.getText() || 'arg';
+                const ptype = param.type ? param.type.getText() : 'any';
+                params.push({ name: pname, type: ptype });
+            }
+        }
+
+        let returnType = 'void';
+
+        // Priority: explicit type annotation > function return type > inferred
+        if (declaredType) {
+            const typeText = declaredType.getText();
+            // Check if it's a type alias reference
+            if (docInfo.functions[typeText] || docInfo.typeAliases?.[typeText]) {
+                returnType = typeText; // Use the type alias name directly
+            } else {
+                // Extract return type from function type
+                const match = typeText.match(/^\([^)]*\)\s*=>\s*(.+)$/) || typeText.match(/=>\s*(.+)$/);
+                returnType = match ? match[1].trim() : typeText;
+            }
+        } else if (init.type) {
+            returnType = init.type.getText();
+        }
+
+        docInfo.functions[name] = {
+            parameters: params,
+            return: returnType,
+            comment,
+            code: getCode(decl)
+        };
+    }
+}
+
+function unwrapCallWrappers(expr: ts.Expression): { inner: ts.Expression, wrappers: string[] } {
+    const wrappers: string[] = [];
+    let current: ts.Expression = expr;
+
+    while (ts.isCallExpression(current) && current.expression) {
+        const callee = current.expression.getText();
+        wrappers.push(callee);
+
+        if (current.arguments && current.arguments.length > 0) {
+            const firstArg = current.arguments[0];
+            if (ts.isFunctionExpression(firstArg) || ts.isArrowFunction(firstArg) ||
+                ts.isCallExpression(firstArg) || ts.isIdentifier(firstArg) ||
+                ts.isClassExpression(firstArg)) {
+                current = firstArg;
+                continue;
+            }
+        }
+        break;
+    }
+    return { inner: current, wrappers };
+}
+function analyzeComponentPattern(init: ts.Expression, name: string, comment: string, exportInfo: IExportInfo, checker: ts.TypeChecker, docInfo: IDocInfo): IReactComponent | null {
     const { inner, wrappers } = unwrapCallWrappers(init);
+
     const isWrappedForwardRef = wrappers.some(w => /\b(React\.)?forwardRef$/.test(w));
     const isWrappedMemo = wrappers.some(w => /\b(React\.)?memo$/.test(w));
 
-    // Handle identifier references - check if it points to an already registered component
-    if (ts.isIdentifier(inner)) {
-        try {
-            const sym = checker.getSymbolAtLocation(inner);
-            if (sym && sym.declarations && sym.declarations.length > 0) {
-                const targetDecl = sym.declarations[0];
-                if (ts.isVariableDeclaration(targetDecl)) {
-                    const targetName = targetDecl.name?.getText();
-                    const referenced = targetName ? docInfo.components[targetName] : undefined;
-                    if (referenced && !docInfo.components[name]) {
-                        docInfo.components[name] = { ...referenced, name, comment };
-                        return;
-                    }
-                }
-
-                // Check if the referenced symbol has a React component type
-                try {
-                    const symbolType = checker.getTypeOfSymbolAtLocation(sym, targetDecl);
-                    const typeString = checker.typeToString(symbolType);
-                    if (/\b(FunctionComponent|ForwardRefExoticComponent|Component)\b/.test(typeString)) {
-                        const propMatch = typeString.match(/<\s*([^>]+)\s*>/);
-                        if (!docInfo.components[name]) {
-                            docInfo.components[name] = {
-                                comment,
-                                propType: propMatch ? propMatch[1].trim() : 'any',
-                                name,
-                                type: /ForwardRefExoticComponent/.test(typeString) ? 'forwardRef' : 'functional'
-                            } as IReactComponent;
-                        }
-                        return;
-                    }
-                } catch { /* ignore checker errors */ }
-            }
-        } catch { /* ignore resolution errors */ }
-    }
-
-    // Handle wrapped components (memo, forwardRef)
     if (isWrappedForwardRef || isWrappedMemo) {
         let propType: string | undefined;
         let refType: string | undefined;
+        let componentType: 'functional' | 'forwardRef' = 'functional';
 
         if ((ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) && inner.parameters && inner.parameters.length > 0) {
             const firstParam = inner.parameters[0];
@@ -561,30 +661,43 @@ function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, checker: ts.
             if (isWrappedForwardRef && inner.parameters.length > 1) {
                 const secondParam = inner.parameters[1];
                 refType = secondParam.type ? secondParam.type.getText() : undefined;
-            }
-        } else if (ts.isClassExpression(inner)) {
-            const heritage = inner.heritageClauses;
-            if (heritage && heritage.length > 0) {
-                const first = heritage[0].types && heritage[0].types[0];
-                if (first && first.typeArguments && first.typeArguments.length >= 1) {
-                    propType = first.typeArguments[0].getText();
-                }
+                componentType = 'forwardRef';
             }
         }
 
-        if (!docInfo.components[name]) {
-            docInfo.components[name] = {
-                comment,
-                propType: propType || 'any',
-                refType,
-                name,
-                type: isWrappedForwardRef ? 'forwardRef' : 'functional'
-            } as IReactComponent;
-        }
-        return;
+        return {
+            comment,
+            propType: propType || 'any',
+            refType,
+            name,
+            type: componentType,
+            exportInfo,
+            wrappers: wrappers.filter(w => /\b(React\.)?(memo|forwardRef)$/.test(w))
+        };
     }
 
-    // Handle class expressions that extend React.Component
+    // Handle identifier references to other components
+    if (ts.isIdentifier(inner)) {
+        const referencedName = inner.getText();
+
+        // Check if it references an existing component in docInfo
+        if (docInfo.components[referencedName]) {
+            const referencedComponent = docInfo.components[referencedName];
+            return {
+                comment,
+                propType: referencedComponent.propType,
+                refType: referencedComponent.refType,
+                stateType: referencedComponent.stateType,
+                name,
+                type: referencedComponent.type,
+                exportInfo,
+                wrappers: wrappers.filter(w => /\b(React\.)?(memo|forwardRef)$/.test(w)),
+                referencedComponent: referencedName // Track the reference
+            };
+        }
+    }
+
+    // Handle class expressions
     if (ts.isClassExpression(inner)) {
         const heritage = inner.heritageClauses;
         if (heritage && heritage.length > 0) {
@@ -597,80 +710,19 @@ function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, checker: ts.
                         propType = first.typeArguments[0].getText();
                     }
 
-                    if (!docInfo.components[name]) {
-                        docInfo.components[name] = {
-                            comment,
-                            propType,
-                            name,
-                            type: 'class'
-                        } as IReactComponent;
-                    }
-                    return;
+                    return {
+                        comment,
+                        propType,
+                        name,
+                        type: 'class',
+                        exportInfo
+                    };
                 }
             }
         }
     }
 
-    // For everything else (plain arrow functions, function expressions), treat as regular functions
-    // Extract function signature for documentation
-    if ((ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) && !docInfo.functions[name]) {
-        const params: IFunctionParam[] = [];
-
-        if (inner.parameters) {
-            for (const param of inner.parameters) {
-                const pname = param.name?.getText() || 'arg';
-                const ptype = param.type ? param.type.getText() : 'any';
-                params.push({ name: pname, type: ptype });
-            }
-        }
-
-        // Determine return type - check declared type first, then infer
-        let returnType = 'any';
-
-        // If there's a declared type (like TestFunction), resolve it
-        if (declaredType) {
-            const typeText = declaredType.getText();
-
-            // Check if it's a reference to a type alias
-            if (docInfo.functions[typeText]) {
-                // It's a function type alias
-                returnType = docInfo.functions[typeText].return;
-            } else {
-                try {
-                    const declaredTypeObj = checker.getTypeFromTypeNode(declaredType);
-                    const signatures = checker.getSignaturesOfType(declaredTypeObj, ts.SignatureKind.Call);
-                    if (signatures && signatures.length > 0) {
-                        const returnTypeObj = checker.getReturnTypeOfSignature(signatures[0]);
-                        returnType = checker.typeToString(returnTypeObj);
-                    }
-                } catch {
-                    // Fallback to text representation
-                    const match = typeText.match(/^\([^)]*\)\s*=>\s*(.+)$/) || typeText.match(/=>\s*(.+)$/);
-                    returnType = match ? match[1].trim() : 'void';
-                }
-            }
-        } else if (inner.type) {
-            returnType = inner.type.getText();
-        } else if (checker) {
-            try {
-                const type = checker.getTypeAtLocation(inner);
-                const signatures = checker.getSignaturesOfType(type, ts.SignatureKind.Call);
-                if (signatures && signatures.length > 0) {
-                    const returnTypeObj = checker.getReturnTypeOfSignature(signatures[0]);
-                    returnType = checker.typeToString(returnTypeObj);
-                }
-            } catch { /* ignore */ }
-        }
-
-        const fnSig: IFunctionSignature = {
-            parameters: params,
-            return: returnType,
-            comment,
-            code: getCode(decl)
-        };
-
-        docInfo.functions[name] = fnSig;
-    }
+    return null;
 }
 
 function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo, checker?: ts.TypeChecker) {
@@ -680,47 +732,41 @@ function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo, checker?: ts.Ty
     if (!name) return;
 
     const comment = extractComment(node);
+    const exportInfo = getExportInfo(node);
+
+    // Only proceed if has @export annotation or is exported
+    if (!hasExportAnnotation(comment) && !exportInfo.isDefault && !exportInfo.isNamed) {
+        return;
+    }
 
     const heritage = node.heritageClauses && node.heritageClauses.length > 0 ? node.heritageClauses[0] : undefined;
     if (!heritage || !heritage.types || heritage.types.length === 0) {
         return;
     }
 
-    try {
-        const first = heritage.types[0];
-        const baseText = first.expression ? first.expression.getText() : '';
-        const isReactComponentBase = /\b(React\.)?Component\b/.test(baseText) || /\b(React\.)?PureComponent\b/.test(baseText);
+    const first = heritage.types[0];
+    const baseText = first.expression ? first.expression.getText() : '';
+    const isReactComponentBase = /\b(React\.)?Component\b/.test(baseText) || /\b(React\.)?PureComponent\b/.test(baseText);
 
-        if (!isReactComponentBase && checker) {
-            // try resolving the base type symbol via checker
-            try {
-                const baseType = checker.getTypeAtLocation(first.expression);
-                if (baseType && baseType.symbol && /Component/.test(baseType.symbol.getName())) {
-                    // ok, treat as component
-                } else {
-                    return;
-                }
-            } catch {
-                return;
-            }
-        } else if (!isReactComponentBase) {
-            return;
-        }
-
-        // extract type arguments for props/state if present
+    if (isReactComponentBase) {
         let propType: string | undefined;
+        let stateType: string | undefined;
+
         if (first.typeArguments && first.typeArguments.length >= 1) {
             propType = first.typeArguments[0].getText();
+            if (first.typeArguments.length >= 2) {
+                stateType = first.typeArguments[1].getText();
+            }
         }
 
         docInfo.components[name] = {
             comment,
             propType: propType || 'any',
+            stateType,
             name,
-            type: 'class'
-        } as IReactComponent;
-    } catch (err) {
-        logWarning('Error parsing class declaration', err);
+            type: 'class',
+            exportInfo
+        };
     }
 }
 
@@ -730,72 +776,63 @@ function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, checker?: ts
     if (!name) return;
 
     const comment = extractComment(node) || '';
-    const code = getCode(node);
+    const exportInfo = getExportInfo(node);
 
-    // --- If it's a hook (name starts with 'use'), register as a hook (keep previous behavior) ---
-    if (name.startsWith('use') && !docInfo.hooks[name]) {
+    // Only proceed if has @export annotation or is exported
+    if (!hasExportAnnotation(comment) && !exportInfo.isDefault && !exportInfo.isNamed) {
+        return;
+    }
+
+    // Handle hooks
+    if (name.startsWith('use')) {
         const parameters: IReactHookParam[] = [];
         if (node.parameters) {
             for (const p of node.parameters) {
                 const pname = p.name?.getText?.() ?? 'arg';
                 let ptype = p.type ? p.type.getText() : 'any';
-                if (ptype === 'any' && checker) {
-                    try {
-                        const pt = checker.getTypeAtLocation(p);
-                        ptype = checker.typeToString(pt);
-                    } catch { /* ignore */ }
-                }
                 parameters.push({ name: pname, type: ptype });
             }
         }
         docInfo.hooks[name] = { name, type: 'function', parameters, comment };
     }
 
-    // --- Capture the function signature into docInfo.functions ---
-    if (!docInfo.functions[name]) {
-        // Build parameter list
-        const params: IFunctionParam[] = [];
-        if (node.parameters) {
-            for (const p of node.parameters) {
-                const pname = p.name?.getText?.() ?? 'arg';
-                let ptype = p.type ? p.type.getText() : 'any';
-                if (ptype === 'any' && checker) {
-                    try {
-                        const pt = checker.getTypeAtLocation(p);
-                        ptype = checker.typeToString(pt);
-                    } catch { /* ignore */ }
-                }
-                params.push({ name: pname, type: ptype });
-            }
+    // Always capture function signature
+    const params: IFunctionParam[] = [];
+    if (node.parameters) {
+        for (const p of node.parameters) {
+            const pname = p.name?.getText?.() ?? 'arg';
+            let ptype = p.type ? p.type.getText() : 'any';
+            params.push({ name: pname, type: ptype });
         }
-
-        // Determine return type (use explicit annotation if present, else try checker)
-        let returnType = 'void';
-        if (node.type) {
-            try {
-                returnType = node.type.getText();
-            } catch {
-                returnType = 'any';
-            }
-        } else if (checker) {
-            try {
-                const sig = checker.getSignatureFromDeclaration(node);
-                if (sig) {
-                    const r = checker.getReturnTypeOfSignature(sig);
-                    returnType = checker.typeToString(r);
-                }
-            } catch { /* ignore */ }
-        }
-
-        const fnSig: IFunctionSignature = {
-            parameters: params,
-            return: returnType,
-            comment,
-            code
-        };
-
-        docInfo.functions[name] = fnSig;
     }
+
+    let returnType = 'void';
+    if (node.type) {
+        returnType = node.type.getText();
+    }
+
+    docInfo.functions[name] = {
+        parameters: params,
+        return: returnType,
+        comment,
+        code: getCode(node)
+    };
+}
+function parseEnumDeclaration(node: ts.Node, docInfo: IDocInfo) {
+    if (!ts.isEnumDeclaration(node)) return;
+
+    const name = node.name.getText();
+    const comment = extractComment(node);
+    const code = getCode(node);
+
+    const members: { name: string; value?: string }[] = [];
+    for (const member of node.members) {
+        const memberName = member.name?.getText() || '';
+        const value = member.initializer?.getText();
+        members.push({ name: memberName, value });
+    }
+
+    docInfo.enums[name] = { comment, members, name, code };
 }
 
 function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
@@ -820,18 +857,12 @@ function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
         }
 
         const returnType = funcType.type ? funcType.type.getText() : 'void';
-
-        const fnSig: IFunctionSignature = {
+        docInfo.functions[name] = {
             parameters,
             return: returnType,
             comment,
             code
         };
-
-        // Don't overwrite if already exists
-        if (!docInfo.functions[name]) {
-            docInfo.functions[name] = fnSig;
-        }
         return;
     }
 
@@ -844,30 +875,140 @@ function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
             items.push(unionMember.getText());
         }
 
-        const union: IUnion = { items, comment, code };
-
-        // Don't overwrite if already exists
-        if (!docInfo.unions[name]) {
-            docInfo.unions[name] = union;
-        }
+        docInfo.unions[name] = { items, comment, code };
         return;
     }
 
-    // Regular type alias (not function or union)
-    // Add as interface-like type for consistency
-    const inf: IInterfaceDeclaration = {
-        comment,
-        members: [],
+    // Regular type alias
+    docInfo.typeAliases[name] = {
         name,
+        type: type.getText(),
+        comment,
         code
     };
-
-    // Don't overwrite if already exists
-    if (!docInfo.interfaces[name]) {
-        docInfo.interfaces[name] = inf;
-    }
 }
-
+function collectAllDependentTypes(docInfo: IDocInfo): Set<string> {
+    const collectedTypes = new Set<string>();
+    const visited = new Set<string>();
+    
+    function extractTypeNames(typeStr: string): string[] {
+        if (!typeStr) return [];
+        
+        const typePattern = /\b([A-Z][a-zA-Z0-9]*)\b/g;
+        const matches = [];
+        let match;
+        
+        while ((match = typePattern.exec(typeStr)) !== null) {
+            const typeName = match[1];
+            if (!['React', 'Promise', 'Array', 'Map', 'Set', 'Date', 'Error', 'String', 'Number', 'Boolean'].includes(typeName)) {
+                matches.push(typeName);
+            }
+        }
+        
+        return matches;
+    }
+    
+    function collectDependencies(typeName: string) {
+        if (visited.has(typeName)) return;
+        visited.add(typeName);
+        
+        // Always collect the type if it exists, regardless of @export annotation
+        if (docInfo.interfaces?.[typeName]) {
+            collectedTypes.add(typeName);
+            const intf = docInfo.interfaces[typeName];
+            
+            const extendsMatch = intf.code.match(/extends\s+([^{]+)/);
+            if (extendsMatch) {
+                const extendedTypes = extractTypeNames(extendsMatch[1]);
+                extendedTypes.forEach(t => collectDependencies(t));
+            }
+            
+            intf.members.forEach(member => {
+                const memberTypes = extractTypeNames(member.type);
+                memberTypes.forEach(t => collectDependencies(t));
+            });
+        }
+        
+        if (docInfo.unions?.[typeName]) {
+            collectedTypes.add(typeName);
+            const union = docInfo.unions[typeName];
+            union.items.forEach(item => {
+                const itemTypes = extractTypeNames(item);
+                itemTypes.forEach(t => collectDependencies(t));
+            });
+        }
+        
+        if (docInfo.enums?.[typeName]) {
+            collectedTypes.add(typeName);
+        }
+        
+        if (docInfo.typeAliases?.[typeName]) {
+            collectedTypes.add(typeName);
+            const alias = docInfo.typeAliases[typeName];
+            const aliasTypes = extractTypeNames(alias.type);
+            aliasTypes.forEach(t => collectDependencies(t));
+        }
+        
+        if (docInfo.functions[typeName]) {
+            collectedTypes.add(typeName);
+            const func = docInfo.functions[typeName];
+            const returnTypes = extractTypeNames(func.return);
+            returnTypes.forEach(t => collectDependencies(t));
+            
+            func.parameters.forEach(param => {
+                const paramTypes = extractTypeNames(param.type);
+                paramTypes.forEach(t => collectDependencies(t));
+            });
+        }
+    }
+    
+    // Collect from exported components
+    Object.values(docInfo.components).forEach(comp => {
+        if (hasExportAnnotation(comp.comment) || comp.exportInfo?.isDefault || comp.exportInfo?.isNamed) {
+            const propTypes = extractTypeNames(comp.propType);
+            propTypes.forEach(t => collectDependencies(t));
+            
+            if (comp.stateType) {
+                const stateTypes = extractTypeNames(comp.stateType);
+                stateTypes.forEach(t => collectDependencies(t));
+            }
+            
+            if (comp.refType) {
+                const refTypes = extractTypeNames(comp.refType);
+                refTypes.forEach(t => collectDependencies(t));
+            }
+        }
+    });
+    
+    // Collect from exported functions
+    Object.values(docInfo.functions).forEach(func => {
+        if (hasExportAnnotation(func.comment)) {
+            const returnTypes = extractTypeNames(func.return);
+            returnTypes.forEach(t => collectDependencies(t));
+            
+            func.parameters.forEach(param => {
+                const paramTypes = extractTypeNames(param.type);
+                paramTypes.forEach(t => collectDependencies(t));
+            });
+        }
+    });
+    
+    // Collect from exported hooks
+    Object.values(docInfo.hooks).forEach(hook => {
+        if (hasExportAnnotation(hook.comment)) {
+            // Collect from hook return type
+            const returnTypes = extractTypeNames(hook.type);
+            returnTypes.forEach(t => collectDependencies(t));
+            
+            hook.parameters.forEach(param => {
+                const paramTypes = extractTypeNames(param.type);
+                paramTypes.forEach(t => collectDependencies(t));
+            });
+        }
+    });
+    
+    return collectedTypes;
+}
 function walkTree(node: ts.Node, docInfo: IDocInfo, checker: ts.TypeChecker) {
     switch (node.kind) {
         case ts.SyntaxKind.TypeAliasDeclaration:
@@ -876,6 +1017,9 @@ function walkTree(node: ts.Node, docInfo: IDocInfo, checker: ts.TypeChecker) {
         case ts.SyntaxKind.InterfaceDeclaration:
             parseInterfaceDeclaration(node, docInfo);
             break;
+        case ts.SyntaxKind.EnumDeclaration:
+            parseEnumDeclaration(node, docInfo);
+            break;
         case ts.SyntaxKind.VariableDeclaration:
             parseVariableDeclaration(node, docInfo, checker);
             break;
@@ -883,8 +1027,6 @@ function walkTree(node: ts.Node, docInfo: IDocInfo, checker: ts.TypeChecker) {
             parseClassDeclaration(node, docInfo, checker);
             break;
         case ts.SyntaxKind.FunctionDeclaration:
-            // IMPORTANT: per ground rules, FunctionDeclaration (e.g. `function X(){}`) is NOT a "declared component".
-            // We still parse it for hooks or regular function types but we will NOT treat it as a component.
             parseFunctionDeclaration(node, docInfo, checker);
             break;
     }
@@ -970,6 +1112,39 @@ function collectReferencedTypes(docInfo: IDocInfo): Set<string> {
     return referencedTypes;
 }
 
+function generateComplexComponentType(comp: IReactComponent, docInfo: IDocInfo): string {
+    let baseType = '';
+
+    // If this component references another component, use the referenced component's details
+    if (comp.referencedComponent && docInfo.components[comp.referencedComponent]) {
+        const referencedComp = docInfo.components[comp.referencedComponent];
+
+        if (referencedComp.type === 'class') {
+            baseType = `React.Component<${referencedComp.propType}, ${referencedComp.stateType || 'any'}>`;
+        } else if (referencedComp.type === 'forwardRef') {
+            baseType = `React.ForwardRefExoticComponent<React.RefAttributes<${referencedComp.refType || 'any'}> & ${referencedComp.propType}>`;
+        } else {
+            baseType = `React.FunctionComponent<${referencedComp.propType}>`;
+        }
+    } else {
+        // Generate type for the component itself
+        if (comp.type === 'class') {
+            baseType = `React.Component<${comp.propType}, ${comp.stateType || 'any'}>`;
+        } else if (comp.type === 'forwardRef') {
+            baseType = `React.ForwardRefExoticComponent<React.RefAttributes<${comp.refType || 'any'}> & ${comp.propType}>`;
+        } else {
+            baseType = `React.FunctionComponent<${comp.propType}>`;
+        }
+    }
+
+    // Wrap with memo if needed
+    if (comp.wrappers && comp.wrappers.some(w => /\bmemo$/.test(w))) {
+        baseType = `React.MemoExoticComponent<${baseType}>`;
+    }
+
+    return baseType;
+}
+
 function generateExportModule(docs: IDocObject, docInfo: IDocInfo, options: IExportModuleOptions) {
     let code = '';
     const openedModule = !!(options && options.moduleName);
@@ -978,109 +1153,78 @@ function generateExportModule(docs: IDocObject, docInfo: IDocInfo, options: IExp
     }
 
     const emitted = new Set<string>();
-    const referencedTypes = collectReferencedTypes(docInfo);
+    const dependentTypes = collectAllDependentTypes(docInfo);
 
-    const isExplicitlyExported = (rawComment: string | undefined) => {
-        if (!rawComment) return false;
-        try {
-            const [, , flags] = parseTSDocComment(rawComment);
-            return (flags & ComponentFlags.Export) === ComponentFlags.Export;
-        } catch {
-            return false;
-        }
-    };
-
-    // Emit referenced types first (interfaces and unions that are used by exported items)
-    for (const typeName of referencedTypes) {
+    // Emit dependent types first
+    for (const typeName of dependentTypes) {
         if (emitted.has(typeName)) continue;
 
-        // Check interfaces
-        const interfaceObj = docInfo.interfaces[typeName];
-        if (interfaceObj) {
-            const toEmit = '\n' + interfaceObj.comment + '\n' + interfaceObj.code + '\n';
+        if (docInfo.interfaces?.[typeName]) {
+            const intf = docInfo.interfaces[typeName];
+            const toEmit = '\n' + intf.comment + '\n' + intf.code + '\n';
             code += indentCode(toEmit, '    ');
             emitted.add(typeName);
-            continue;
-        }
-
-        // Check unions
-        const unionObj = docInfo.unions[typeName];
-        if (unionObj) {
-            const toEmit = '\n' + unionObj.comment + '\n' + unionObj.code + '\n';
+        } else if (docInfo.unions?.[typeName]) {
+            const union = docInfo.unions[typeName];
+            const toEmit = '\n' + union.comment + '\n' + union.code + '\n';
             code += indentCode(toEmit, '    ');
             emitted.add(typeName);
-            continue;
-        }
-    }
-
-    // Emit explicitly exported types
-    for (let i in docs.types) {
-        const obj = docs.types[i];
-        const name = obj.name;
-        if (emitted.has(name)) continue;
-
-        let rawComment = '';
-        if (docInfo.interfaces[obj.name]) rawComment = docInfo.interfaces[obj.name].comment;
-        else if (docInfo.functions[obj.name]) rawComment = docInfo.functions[obj.name].comment;
-        else if (docInfo.unions[obj.name]) rawComment = docInfo.unions[obj.name].comment;
-
-        if (!isExplicitlyExported(rawComment)) continue;
-
-        if (obj.type === 'interface' || obj.type === 'union') {
-            const toEmit = '\n' + (rawComment || '') + '\n' + 'export ' + obj.code + '\n';
+        } else if (docInfo.enums?.[typeName]) {
+            const enumObj = docInfo.enums[typeName];
+            const toEmit = '\n' + enumObj.comment + '\n' + enumObj.code + '\n';
             code += indentCode(toEmit, '    ');
-            emitted.add(name);
-            continue;
-        }
-
-        if (obj.type === 'function') {
-            const fn = docInfo.functions[obj.name];
-            if (fn) {
-                const paramsTxt = fn.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
-                const ret = fn.return || 'void';
-                const commentBlock = fn.comment ? '\n' + fn.comment + '\n' : '\n';
-                const decl = `export function ${obj.name}(${paramsTxt}): ${ret};\n`;
-                code += indentCode(commentBlock + decl, '    ');
-                emitted.add(name);
-            } else {
-                const stripped = obj.code.replace(/\{[\s\S]*\}$/, ';');
-                const toEmit = '\n' + (rawComment || '') + '\n' + 'export ' + stripped + '\n';
-                code += indentCode(toEmit, '    ');
-                emitted.add(name);
-            }
-            continue;
+            emitted.add(typeName);
+        } else if (docInfo.typeAliases?.[typeName]) {
+            const alias = docInfo.typeAliases[typeName];
+            const toEmit = '\n' + alias.comment + '\n' + alias.code + '\n';
+            code += indentCode(toEmit, '    ');
+            emitted.add(typeName);
         }
     }
 
-    // Emit exported components
-    for (let i in docs.components) {
-        const doc = docs.components[i];
-        const name = doc.name;
-        if (emitted.has(name)) continue;
-
-        if (ComponentFlags.Export === (doc.flags & ComponentFlags.Export)) {
-            const component = docInfo.components[doc.name];
-            if (!component) continue;
-            const componentCode = generateComponentTypeDefinition(component, docInfo.interfaces);
-            code += indentCode(componentCode, '    ');
-            emitted.add(name);
+    // Emit exported components with proper complex types
+    Object.values(docInfo.components).forEach(comp => {
+        if (emitted.has(comp.name)) return;
+        
+        const shouldExport = hasExportAnnotation(comp.comment) || comp.exportInfo?.isDefault || comp.exportInfo?.isNamed;
+        if (shouldExport) {
+            const complexType = generateComplexComponentType(comp, docInfo);
+            const commentBlock = comp.comment ? '\n' + comp.comment + '\n' : '\n';
+            const declaration = `export const ${comp.name}: ${complexType};\n`;
+            code += indentCode(commentBlock + declaration, '    ');
+            emitted.add(comp.name);
         }
-    }
+    });
 
-    // Emit remaining exported functions
-    for (let fname of Object.keys(docInfo.functions || {})) {
-        if (emitted.has(fname)) continue;
-        const fn = docInfo.functions[fname];
-        if (!fn) continue;
-        if (!isExplicitlyExported(fn.comment)) continue;
+    // Emit exported functions (excluding type aliases that are functions)
+    Object.keys(docInfo.functions).forEach(fname => {
+        if (emitted.has(fname)) return;
+        const f = docInfo.functions[fname];
+        
+        // Skip if this is actually a type alias
+        if (docInfo.typeAliases?.[fname]) return;
+        
+        if (hasExportAnnotation(f.comment)) {
+            const paramsTxt = f.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
+            const commentBlock = f.comment ? '\n' + f.comment + '\n' : '\n';
+            const declaration = `export function ${fname}(${paramsTxt}): ${f.return};\n`;
+            code += indentCode(commentBlock + declaration, '    ');
+            emitted.add(fname);
+        }
+    });
 
-        const paramsTxt = fn.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
-        const ret = fn.return || 'void';
-        const commentBlock = fn.comment ? '\n' + fn.comment + '\n' : '\n';
-        const decl = `export function ${fname}(${paramsTxt}): ${ret};\n`;
-        code += indentCode(commentBlock + decl, '    ');
-        emitted.add(fname);
-    }
+    // Emit exported hooks
+    Object.values(docInfo.hooks).forEach(hook => {
+        if (emitted.has(hook.name)) return;
+        
+        if (hasExportAnnotation(hook.comment)) {
+            const paramsTxt = hook.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
+            const commentBlock = hook.comment ? '\n' + hook.comment + '\n' : '\n';
+            const declaration = `export function ${hook.name}(${paramsTxt}): ${hook.type};\n`;
+            code += indentCode(commentBlock + declaration, '    ');
+            emitted.add(hook.name);
+        }
+    });
 
     if (openedModule) {
         code += `\n}\n`;
@@ -1105,7 +1249,7 @@ function load(root: string): [IDocInfo, IDocObject] {
     logDebug('Validated');
 
     const sources = getSources(program);
-    const docInfo: IDocInfo = { interfaces: {}, components: {}, hooks: {}, functions: {}, unions: {} };
+    const docInfo: IDocInfo = { interfaces: {}, components: {}, hooks: {}, functions: {}, unions: {}, enums: {}, typeAliases: {} };
 
     for (let i = 0; i < sources.length; i++) {
         const source = sources[i];
