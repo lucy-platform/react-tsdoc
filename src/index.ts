@@ -62,6 +62,10 @@ export function generateDocObject(docInfo: IDocInfo): IDocObject {
 export function load(root: string): [IDocInfo, IDocObject] {
     const options: ts.CompilerOptions = {
         jsx: ts.JsxEmit.React,
+        target: ts.ScriptTarget.ESNext, // Support optional chaining and async/await
+        module: ts.ModuleKind.CommonJS,
+        strict: true,
+        skipLibCheck: true,
     };
 
     logDebug('Loading', root);

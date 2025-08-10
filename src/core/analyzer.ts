@@ -1,6 +1,6 @@
 import * as ts from 'typescript';
 import { IDocInfo, IReactComponent, IFunctionParam, IReactHookParam, IInterfaceDeclaration } from './types';
-import { logCompilerMessage } from '../utils/logger';
+import { logCompilerMessage, logDebug } from '../utils/logger';
 
 export function extractComment(node: ts.Node): string {
     const fullText = node.getSourceFile().getFullText();
@@ -249,7 +249,7 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
     const parentForComments = (decl.parent && decl.parent.parent) ? decl.parent.parent : node.parent;
     const comment = extractComment(parentForComments || node) || '';
     const init = decl.initializer;
-    const declaredType = (decl as any).type as ts.TypeNode | undefined;
+    const declaredType = decl.type as ts.TypeNode | undefined;
 
     if (name.startsWith('use')) {
         const parameters: IReactHookParam[] = [];
@@ -264,7 +264,12 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
                 }
             }
 
-            if (init.type) {
+            // Handle async functions
+            if (init.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) {
+                logDebug(`Found async hook: ${name}`);
+                // Adjust return type inference for async functions
+                hookReturnType = 'Promise<any>';
+            } else if (init.type) {
                 hookReturnType = init.type.getText();
             } else if (checker) {
                 const body = init.body;
@@ -520,6 +525,8 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
 }
 
 export function walkTree(node: ts.Node, docInfo: IDocInfo, checker: ts.TypeChecker) {
+    if (!node || !node.getSourceFile()) return; // Prevent undefined node errors
+
     switch (node.kind) {
         case ts.SyntaxKind.TypeAliasDeclaration:
             parseTypeAlias(node, docInfo);
@@ -539,6 +546,15 @@ export function walkTree(node: ts.Node, docInfo: IDocInfo, checker: ts.TypeCheck
         case ts.SyntaxKind.FunctionDeclaration:
             parseFunctionDeclaration(node, docInfo, checker);
             break;
+        case ts.SyntaxKind.AwaitExpression:
+        case ts.SyntaxKind.CallExpression:
+        case ts.SyntaxKind.ElementAccessExpression:
+        case ts.SyntaxKind.PropertyAccessExpression:
+            // Handle async/await, function calls, and optional chaining
+            break;
+        default:
+            // Log unknown nodes for debugging
+            logDebug(`Unhandled node kind: ${ts.SyntaxKind[node.kind]} at ${node.getSourceFile()?.fileName}:${node.pos}`);
     }
 
     node.forEachChild(child => walkTree(child, docInfo, checker));
