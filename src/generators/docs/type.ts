@@ -24,29 +24,68 @@ export function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' 
         }
     }
 
+    // if (dependentTypes) {
+    //     const relatedTypes: string[] = [];
+
+    //     if (typeKind === 'interface' && typeInfo.members) {
+    //         typeInfo.members.forEach((member: any) => {
+    //             if (member.type && dependentTypes.has(member.type)) {
+    //                 relatedTypes.push(member.type);
+    //             }
+    //         });
+    //     }
+
+    //     if (typeKind === 'union' && typeInfo.items) {
+    //         typeInfo.items.forEach((item: string) => {
+    //             if (dependentTypes.has(item)) {
+    //                 relatedTypes.push(item);
+    //             }
+    //         });
+    //     }
+
+    //     const uniqueRelatedTypes = [...new Set(relatedTypes)];
+    //     if (uniqueRelatedTypes.length > 0) {
+    //         md.addTitle('Related Types', 2);
+    //         const typeLinks = uniqueRelatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
+    //         md.addParagraph(typeLinks);
+    //     }
+    // }
     if (dependentTypes) {
-        const relatedTypes: string[] = [];
+        // Prepare a shape that getRelatedTypes can consume
+        const typeSearchTarget: any = { type: typeInfo.name };
 
         if (typeKind === 'interface' && typeInfo.members) {
-            typeInfo.members.forEach((member: any) => {
-                if (member.type && dependentTypes.has(member.type)) {
-                    relatedTypes.push(member.type);
-                }
-            });
+            // Collect member property types
+            typeSearchTarget.propType = typeInfo.name;
+            typeSearchTarget.parameters = typeInfo.members.map((m: any) => ({ type: m.type }));
+            // Check for extends clause
+            const extendsMatch = typeInfo.code.match(/extends\s+([^{]+)/);
+            if (extendsMatch) {
+                typeSearchTarget.type = extendsMatch[1];
+            }
         }
 
         if (typeKind === 'union' && typeInfo.items) {
-            typeInfo.items.forEach((item: string) => {
-                if (dependentTypes.has(item)) {
-                    relatedTypes.push(item);
-                }
-            });
+            typeSearchTarget.type = typeInfo.items.join(' | ');
         }
 
-        const uniqueRelatedTypes = [...new Set(relatedTypes)];
-        if (uniqueRelatedTypes.length > 0) {
+        if (typeKind === 'type' && typeInfo.type) {
+            typeSearchTarget.type = typeInfo.type;
+        }
+
+        if (typeKind === 'enum') {
+            // Enum members generally won't have related types,
+            // but still pass the name so it can link if referenced elsewhere.
+            typeSearchTarget.type = typeInfo.name;
+        }
+
+        const relatedTypes = getRelatedTypes(typeSearchTarget, dependentTypes, docInfo)
+            .filter(t => t !== typeInfo.name); // exclude the current type itself
+        if (relatedTypes.length > 0) {
             md.addTitle('Related Types', 2);
-            const typeLinks = uniqueRelatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
+            const typeLinks = relatedTypes
+                .map(typeName => `- [${typeName}](../types/${typeName}.md)`)
+                .join('\n');
             md.addParagraph(typeLinks);
         }
     }
