@@ -38,17 +38,14 @@ function indentCode(code: string, chars: string) {
 }
 class MarkdownBuilder {
     private code = "";
-    public addTitle(title: string, level: 1 | 2 | 3 | 4) {
-        let headerChar = '#';
-        let prefix = '';
-        for (let i = 0; i < level; i++) {
-            prefix += headerChar;
-        }
-        this.code += prefix + ' ' + title + '\n\n';
-    }
-    public addParagraph(p: string) {
 
-        this.code += '\n\n' + p + '\n\n';
+    public addTitle(title: string, level: 1 | 2 | 3 | 4) {
+        let prefix = '#'.repeat(level);
+        this.code += `${prefix} ${title}\n\n`;
+    }
+
+    public addParagraph(p: string) {
+        this.code += `${p}\n\n`;
     }
 
     public addCode(code: string) {
@@ -59,27 +56,25 @@ class MarkdownBuilder {
         if (code.endsWith('```')) {
             code = code.substring(0, code.length - 3);
         }
-        this.code += '\n\n```tsx\n' + code.trim() + '\n```\n\n'
+        this.code += `\`\`\`tsx\n${code.trim()}\n\`\`\`\n\n`
     }
+
     public addTable(table: any[]) {
         const tableFormat = (s: string) => {
             return s.replace(/\s+/g, ' ').replace(/\|/g, '\\|');
         }
         if (table.length == 0) {
-            this.code += '\n\n';
-            return
+            return;
         }
         let headers = Object.keys(table[0]);
-        this.code += '|' + (headers.map(tableFormat)).join('|') + '|\n';
-        this.code += '|' + (headers.map(h => '-')).join('|') + '|\n';
-        for (let i in table) {
-            let row = table[i];
-            this.code += '|' + (headers.map(h => tableFormat(row[h]))).join('|') + '|\n';
+        this.code += `|${headers.map(tableFormat).join('|')}|\n`;
+        this.code += `|${headers.map(h => '-').join('|')}|\n`;
+        for (let row of table) {
+            this.code += `|${headers.map(h => tableFormat(row[h])).join('|')}|\n`;
         }
-
-        this.code += '\n\n'
-
+        this.code += '\n';
     }
+
     public toString() {
         return this.code;
     }
@@ -1493,12 +1488,30 @@ function generateTypeDoc(cdoc: ITypeDocumentation, docs: IDocObject) {
 // }
 
 
+
+
+// Helper function to extract types from complex component declarations
+function extractTypesFromComplex(comp: IReactComponent, docInfo: IDocInfo): { propType: string, refType?: string } {
+    // Use the same logic as generateComplexComponentType but extract instead of generate
+
+    let actualComp = comp;
+    // If this component references another component, use the referenced component's details
+    if (comp.referencedComponent && docInfo.components[comp.referencedComponent]) {
+        actualComp = docInfo.components[comp.referencedComponent];
+    }
+
+    return {
+        propType: actualComp.propType,
+        refType: actualComp.refType
+    };
+}
+
 function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInfo, moduleName?: string, dependentTypes?: Set<string>) {
     let md = new MarkdownBuilder();
     const [summary, examples] = parseTSDocComment(comp.comment);
 
     md.addTitle(comp.name, 1);
-    md.addParagraph(summary);
+    if (summary) md.addParagraph(summary);
 
     // Installation
     md.addTitle('Installation', 2);
@@ -1565,40 +1578,21 @@ function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInf
     return md.toString();
 }
 
-// Helper function to extract types from complex component declarations
-function extractTypesFromComplex(comp: IReactComponent, docInfo: IDocInfo): { propType: string, refType?: string } {
-    // Use the same logic as generateComplexComponentType but extract instead of generate
-
-    let actualComp = comp;
-    // If this component references another component, use the referenced component's details
-    if (comp.referencedComponent && docInfo.components[comp.referencedComponent]) {
-        actualComp = docInfo.components[comp.referencedComponent];
-    }
-
-    return {
-        propType: actualComp.propType,
-        refType: actualComp.refType
-    };
-}
-
 function generateHookDocFromDocInfo(hook: IReactHook, docInfo: IDocInfo, moduleName?: string, dependentTypes?: Set<string>) {
     let md = new MarkdownBuilder();
     const [summary, examples] = parseTSDocComment(hook.comment);
 
     md.addTitle(hook.name, 1);
-    md.addParagraph(summary);
+    if (summary) md.addParagraph(summary);
 
-    // Installation
     md.addTitle('Installation', 2);
     const moduleImport = moduleName || 'your-module';
     md.addCode(`import { ${hook.name} } from '${moduleImport}';`);
 
-    // Signature
     md.addTitle('Signature', 2);
     const params = hook.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
     md.addCode(`function ${hook.name}(${params}): ${hook.type}`);
 
-    // Examples
     if (examples.length > 0) {
         md.addTitle('Examples', 2);
         for (let example of examples) {
@@ -1606,7 +1600,6 @@ function generateHookDocFromDocInfo(hook: IReactHook, docInfo: IDocInfo, moduleN
         }
     }
 
-    // Related Types section
     if (dependentTypes) {
         const relatedTypes = getRelatedTypes(hook, dependentTypes, docInfo);
         if (relatedTypes.length > 0) {
@@ -1626,20 +1619,17 @@ function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocI
     const functionName = Object.keys(docInfo.functions).find(key => docInfo.functions[key] === func) || 'function';
 
     md.addTitle(functionName, 1);
-    md.addParagraph(summary);
+    if (summary) md.addParagraph(summary);
 
-    // Installation
     md.addTitle('Installation', 2);
     const moduleImport = moduleName || 'your-module';
     md.addCode(`import { ${functionName} } from '${moduleImport}';`);
 
-    // Signature
     md.addTitle('Signature', 2);
     const params = func.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
     const signature = `function ${functionName}(${params}): ${func.return}`;
     md.addCode(signature);
 
-    // Examples
     if (examples.length > 0) {
         md.addTitle('Examples', 2);
         for (let example of examples) {
@@ -1647,7 +1637,6 @@ function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocI
         }
     }
 
-    // Related Types section
     if (dependentTypes) {
         const relatedTypes = getRelatedTypes(func, dependentTypes, docInfo);
         if (relatedTypes.length > 0) {
@@ -1665,18 +1654,15 @@ function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'unio
     const [summary, examples] = parseTSDocComment(typeInfo.comment);
 
     md.addTitle(typeInfo.name, 1);
-    md.addParagraph(summary);
+    if (summary) md.addParagraph(summary);
 
-    // Definition
     md.addTitle('Definition', 2);
     md.addCode(typeInfo.code);
 
-    // Usage
     md.addTitle('Usage', 2);
     const moduleImport = moduleName || 'your-module';
     md.addCode(`import { ${typeInfo.name} } from '${moduleImport}';`);
 
-    // Examples
     if (examples.length > 0) {
         md.addTitle('Examples', 2);
         for (let example of examples) {
@@ -1684,11 +1670,9 @@ function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'unio
         }
     }
 
-    // Related Types section - find types that reference this type
     if (dependentTypes) {
         const relatedTypes: string[] = [];
 
-        // For interfaces, check member types
         if (typeKind === 'interface' && typeInfo.members) {
             typeInfo.members.forEach((member: any) => {
                 if (member.type && dependentTypes.has(member.type)) {
@@ -1697,7 +1681,6 @@ function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'unio
             });
         }
 
-        // For unions, check union item types
         if (typeKind === 'union' && typeInfo.items) {
             typeInfo.items.forEach((item: string) => {
                 if (dependentTypes.has(item)) {
