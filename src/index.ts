@@ -870,7 +870,6 @@ function parseClassDeclaration(node: ts.Node, docInfo: IDocInfo, checker?: ts.Ty
     }
 }
 
-
 function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, checker?: ts.TypeChecker) {
     if (!ts.isFunctionDeclaration(node)) return;
     const name = node.name?.getText();
@@ -1254,28 +1253,33 @@ function collectReferencedTypes(docInfo: IDocInfo): Set<string> {
     return referencedTypes;
 }
 
-function generateComplexComponentType(comp: IReactComponent, docInfo: IDocInfo): string {
+function generateComplexComponentType(comp: IReactComponent, docInfo: IDocInfo, linkTypes?: boolean): string {
     let baseType = '';
+
+    // Helper function to conditionally link types
+    const typeHelper = linkTypes ?
+        (type: string) => linkedType(type, docInfo) :
+        (type: string) => type;
 
     // If this component references another component, use the referenced component's details
     if (comp.referencedComponent && docInfo.components[comp.referencedComponent]) {
         const referencedComp = docInfo.components[comp.referencedComponent];
 
         if (referencedComp.type === 'class') {
-            baseType = `React.Component<${referencedComp.propType}, ${referencedComp.stateType || 'any'}>`;
+            baseType = `React.Component<${typeHelper(referencedComp.propType)}, ${typeHelper(referencedComp.stateType || 'any')}>`;
         } else if (referencedComp.type === 'forwardRef') {
-            baseType = `React.ForwardRefExoticComponent<React.RefAttributes<${referencedComp.refType || 'any'}> & ${referencedComp.propType}>`;
+            baseType = `React.ForwardRefExoticComponent<React.RefAttributes<${typeHelper(referencedComp.refType || 'any')}> & ${typeHelper(referencedComp.propType)}>`;
         } else {
-            baseType = `React.FunctionComponent<${referencedComp.propType}>`;
+            baseType = `React.FunctionComponent<${typeHelper(referencedComp.propType)}>`;
         }
     } else {
         // Generate type for the component itself
         if (comp.type === 'class') {
-            baseType = `React.Component<${comp.propType}, ${comp.stateType || 'any'}>`;
+            baseType = `React.Component<${typeHelper(comp.propType)}, ${typeHelper(comp.stateType || 'any')}>`;
         } else if (comp.type === 'forwardRef') {
-            baseType = `React.ForwardRefExoticComponent<React.RefAttributes<${comp.refType || 'any'}> & ${comp.propType}>`;
+            baseType = `React.ForwardRefExoticComponent<React.RefAttributes<${typeHelper(comp.refType || 'any')}> & ${typeHelper(comp.propType)}>`;
         } else {
-            baseType = `React.FunctionComponent<${comp.propType}>`;
+            baseType = `React.FunctionComponent<${typeHelper(comp.propType)}>`;
         }
     }
 
@@ -1489,7 +1493,7 @@ function generateTypeDoc(cdoc: ITypeDocumentation, docs: IDocObject) {
 // }
 
 
-function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInfo, moduleName?: string) {
+function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInfo, moduleName?: string, dependentTypes?: Set<string>) {
     let md = new MarkdownBuilder();
     const [summary, examples] = parseTSDocComment(comp.comment);
 
@@ -1501,6 +1505,11 @@ function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInf
     const moduleImport = moduleName || 'your-module';
     md.addCode(`import { ${comp.name} } from '${moduleImport}';`);
 
+    // Signature
+    md.addTitle('Signature', 2);
+    const complexType = generateComplexComponentType(comp, docInfo, false);
+    md.addCode(`const ${comp.name}: ${complexType}`);
+
     // Examples
     if (examples.length > 0) {
         md.addTitle('Examples', 2);
@@ -1509,7 +1518,6 @@ function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInf
         }
     }
 
-    // Extract actual prop/ref types from complex types
     const { propType, refType } = extractTypesFromComplex(comp, docInfo);
 
     // Properties from interface
@@ -1536,11 +1544,21 @@ function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInf
                 const [memberSummary] = parseTSDocComment(member.comment || '');
                 return {
                     Method: member.name,
-                    Type: member.type,
+                    Type: linkedType(member.type, docInfo),
                     Description: memberSummary || '-'
                 };
             });
             md.addTable(handlersTable);
+        }
+    }
+
+    // Related Types section
+    if (dependentTypes) {
+        const relatedTypes = getRelatedTypes(comp, dependentTypes);
+        if (relatedTypes.length > 0) {
+            md.addTitle('Related Types', 2);
+            const typeLinks = relatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
+            md.addParagraph(typeLinks);
         }
     }
 
@@ -1563,7 +1581,7 @@ function extractTypesFromComplex(comp: IReactComponent, docInfo: IDocInfo): { pr
     };
 }
 
-function generateHookDocFromDocInfo(hook: IReactHook, docInfo: IDocInfo, moduleName?: string) {
+function generateHookDocFromDocInfo(hook: IReactHook, docInfo: IDocInfo, moduleName?: string, dependentTypes?: Set<string>) {
     let md = new MarkdownBuilder();
     const [summary, examples] = parseTSDocComment(hook.comment);
 
@@ -1588,10 +1606,20 @@ function generateHookDocFromDocInfo(hook: IReactHook, docInfo: IDocInfo, moduleN
         }
     }
 
+    // Related Types section
+    if (dependentTypes) {
+        const relatedTypes = getRelatedTypes(hook, dependentTypes);
+        if (relatedTypes.length > 0) {
+            md.addTitle('Related Types', 2);
+            const typeLinks = relatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
+            md.addParagraph(typeLinks);
+        }
+    }
+
     return md.toString();
 }
 
-function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocInfo, moduleName?: string) {
+function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocInfo, moduleName?: string, dependentTypes?: Set<string>) {
     let md = new MarkdownBuilder();
     const [summary, examples] = parseTSDocComment(func.comment);
 
@@ -1607,7 +1635,9 @@ function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocI
 
     // Signature
     md.addTitle('Signature', 2);
-    md.addCode(func.code);
+    const params = func.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
+    const signature = `function ${functionName}(${params}): ${func.return}`;
+    md.addCode(signature);
 
     // Examples
     if (examples.length > 0) {
@@ -1617,10 +1647,20 @@ function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocI
         }
     }
 
+    // Related Types section
+    if (dependentTypes) {
+        const relatedTypes = getRelatedTypes(func, dependentTypes);
+        if (relatedTypes.length > 0) {
+            md.addTitle('Related Types', 2);
+            const typeLinks = relatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
+            md.addParagraph(typeLinks);
+        }
+    }
+
     return md.toString();
 }
 
-function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'union' | 'enum' | 'type', docInfo: IDocInfo, moduleName?: string) {
+function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'union' | 'enum' | 'type', docInfo: IDocInfo, moduleName?: string, dependentTypes?: Set<string>) {
     let md = new MarkdownBuilder();
     const [summary, examples] = parseTSDocComment(typeInfo.comment);
 
@@ -1631,7 +1671,7 @@ function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'unio
     md.addTitle('Definition', 2);
     md.addCode(typeInfo.code);
 
-    // Installation/Usage
+    // Usage
     md.addTitle('Usage', 2);
     const moduleImport = moduleName || 'your-module';
     md.addCode(`import { ${typeInfo.name} } from '${moduleImport}';`);
@@ -1644,9 +1684,70 @@ function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'unio
         }
     }
 
+    // Related Types section - find types that reference this type
+    if (dependentTypes) {
+        const relatedTypes: string[] = [];
+
+        // For interfaces, check member types
+        if (typeKind === 'interface' && typeInfo.members) {
+            typeInfo.members.forEach((member: any) => {
+                if (member.type && dependentTypes.has(member.type)) {
+                    relatedTypes.push(member.type);
+                }
+            });
+        }
+
+        // For unions, check union item types
+        if (typeKind === 'union' && typeInfo.items) {
+            typeInfo.items.forEach((item: string) => {
+                if (dependentTypes.has(item)) {
+                    relatedTypes.push(item);
+                }
+            });
+        }
+
+        const uniqueRelatedTypes = [...new Set(relatedTypes)];
+        if (uniqueRelatedTypes.length > 0) {
+            md.addTitle('Related Types', 2);
+            const typeLinks = uniqueRelatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
+            md.addParagraph(typeLinks);
+        }
+    }
+
     return md.toString();
 }
 
+function getRelatedTypes(item: { propType?: string, refType?: string, stateType?: string, parameters?: any[], return?: string, type?: string }, dependentTypes: Set<string>): string[] {
+    const relatedTypes: string[] = [];
+
+    // Check component types
+    if (item.propType && dependentTypes.has(item.propType)) {
+        relatedTypes.push(item.propType);
+    }
+    if (item.refType && dependentTypes.has(item.refType)) {
+        relatedTypes.push(item.refType);
+    }
+    if (item.stateType && dependentTypes.has(item.stateType)) {
+        relatedTypes.push(item.stateType);
+    }
+
+    // Check function/hook parameter and return types
+    if (item.parameters) {
+        item.parameters.forEach(param => {
+            if (dependentTypes.has(param.type)) {
+                relatedTypes.push(param.type);
+            }
+        });
+    }
+    if (item.return && dependentTypes.has(item.return)) {
+        relatedTypes.push(item.return);
+    }
+    if (item.type && dependentTypes.has(item.type)) {
+        relatedTypes.push(item.type);
+    }
+
+    return [...new Set(relatedTypes)]; // Remove duplicates
+}
 // Updated linkedType function to work with docInfo
 function linkedType(type: string, docInfo: IDocInfo): string {
     const cleanType = type.replace(/\[\]$/, ''); // Remove array notation for checking
@@ -1668,14 +1769,14 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
     mkdirp.sync(outputPath + '/hooks/');
     mkdirp.sync(outputPath + '/functions/');
 
-    // Collect all dependent types (same logic as types command)
+    // Collect all dependent types once
     const dependentTypes = collectAllDependentTypes(docInfo);
 
     // Generate component docs
     for (let cn in docInfo.components) {
         let componentInfo = docInfo.components[cn];
         if (hasExportAnnotation(componentInfo.comment)) {
-            let md = generateComponentDocFromDocInfo(componentInfo, docInfo, moduleName);
+            let md = generateComponentDocFromDocInfo(componentInfo, docInfo, moduleName, dependentTypes);
             let path = outputPath + '/components/' + componentInfo.name + '.md';
             console.log(chalk.gray('Writing component', componentInfo.name, 'to', path));
             fs.writeFileSync(path, md);
@@ -1686,7 +1787,7 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
     for (const typeName of dependentTypes) {
         if (docInfo.interfaces?.[typeName]) {
             const typeInfo = docInfo.interfaces[typeName];
-            let md = generateTypeDocFromDocInfo(typeInfo, 'interface', docInfo, moduleName);
+            let md = generateTypeDocFromDocInfo(typeInfo, 'interface', docInfo, moduleName, dependentTypes);
             let path = outputPath + '/types/' + typeInfo.name + '.md';
             console.log(chalk.gray('Writing type', typeInfo.name, 'to', path));
             fs.writeFileSync(path, md);
@@ -1694,7 +1795,7 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
 
         if (docInfo.unions?.[typeName]) {
             const typeInfo = docInfo.unions[typeName];
-            let md = generateTypeDocFromDocInfo(typeInfo, 'union', docInfo, moduleName);
+            let md = generateTypeDocFromDocInfo(typeInfo, 'union', docInfo, moduleName, dependentTypes);
             let path = outputPath + '/types/' + typeName + '.md';
             console.log(chalk.gray('Writing type', typeName, 'to', path));
             fs.writeFileSync(path, md);
@@ -1702,7 +1803,7 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
 
         if (docInfo.enums?.[typeName]) {
             const typeInfo = docInfo.enums[typeName];
-            let md = generateTypeDocFromDocInfo(typeInfo, 'enum', docInfo, moduleName);
+            let md = generateTypeDocFromDocInfo(typeInfo, 'enum', docInfo, moduleName, dependentTypes);
             let path = outputPath + '/types/' + typeInfo.name + '.md';
             console.log(chalk.gray('Writing type', typeInfo.name, 'to', path));
             fs.writeFileSync(path, md);
@@ -1710,7 +1811,7 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
 
         if (docInfo.typeAliases?.[typeName]) {
             const typeInfo = docInfo.typeAliases[typeName];
-            let md = generateTypeDocFromDocInfo(typeInfo, 'type', docInfo, moduleName);
+            let md = generateTypeDocFromDocInfo(typeInfo, 'type', docInfo, moduleName, dependentTypes);
             let path = outputPath + '/types/' + typeInfo.name + '.md';
             console.log(chalk.gray('Writing type', typeInfo.name, 'to', path));
             fs.writeFileSync(path, md);
@@ -1718,7 +1819,7 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
 
         if (docInfo.functions?.[typeName]) {
             const typeInfo = docInfo.functions[typeName];
-            let md = generateFunctionDocFromDocInfo(typeInfo, docInfo, moduleName);
+            let md = generateFunctionDocFromDocInfo(typeInfo, docInfo, moduleName, dependentTypes);
             let path = outputPath + '/types/' + typeName + '.md';
             console.log(chalk.gray('Writing function type', typeName, 'to', path));
             fs.writeFileSync(path, md);
@@ -1729,7 +1830,7 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
     for (let hn in docInfo.hooks) {
         let hookInfo = docInfo.hooks[hn];
         if (hasExportAnnotation(hookInfo.comment)) {
-            let md = generateHookDocFromDocInfo(hookInfo, docInfo, moduleName);
+            let md = generateHookDocFromDocInfo(hookInfo, docInfo, moduleName, dependentTypes);
             let path = outputPath + '/hooks/' + hookInfo.name + '.md';
             console.log(chalk.gray('Writing hook', hookInfo.name, 'to', path));
             fs.writeFileSync(path, md);
@@ -1741,7 +1842,7 @@ function generateDocs(root: string, outputPath: string, moduleName?: string) {
         if (!dependentTypes.has(fn)) {
             let functionInfo = docInfo.functions[fn];
             if (hasExportAnnotation(functionInfo.comment)) {
-                let md = generateFunctionDocFromDocInfo(functionInfo, docInfo, moduleName);
+                let md = generateFunctionDocFromDocInfo(functionInfo, docInfo, moduleName, dependentTypes);
                 let path = outputPath + '/functions/' + fn + '.md';
                 console.log(chalk.gray('Writing function', fn, 'to', path));
                 fs.writeFileSync(path, md);
