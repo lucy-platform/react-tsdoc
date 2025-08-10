@@ -4,7 +4,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Debug react-tsdoc CLI",
+            "name": "Debug react-tsdoc CLI (docs)",
             "program": "${workspaceFolder}/bin/react-tsdoc.js",
             "args": [
                 "docs",
@@ -13,13 +13,23 @@
                 "--module-name",
                 "my-types"
             ],
-            // "args": [
-            //     "types",
-            //     "./test/sample-app/src/index.tsx",
-            //     "./test/dist/types/types.d.ts",
-            //     "--module-name",
-            //     "my-types"
-            // ],
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug react-tsdoc CLI (types)",
+            "program": "${workspaceFolder}/bin/react-tsdoc.js",
+            "args": [
+                "types",
+                "./test/sample-app/src/index.tsx",
+                "./test/dist/types/types.d.ts",
+                "--module-name",
+                "my-types"
+            ],
             "skipFiles": [
                 "<node_internals>/**"
             ],

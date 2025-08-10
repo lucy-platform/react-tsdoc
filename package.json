@@ -1,6 +1,6 @@
 {
   "name": "@iviva/react-tsdoc",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Tool to generate documentation and type definitions for your React component library",
   "keywords": [
     "react",
@@ -11,7 +11,7 @@
   "homepage": "https://github.com/lucy-platform/react-tsdoc",
   "license": "ISC",
   "author": "",
-  "main": "dist/index.js",
+  "main": "dist/cli/index.js",
   "bin": {
     "react-tsdoc": "dist/cli/index.js"
   },

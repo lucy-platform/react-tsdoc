@@ -1,29 +1,35 @@
-import * as clap from 'clap';
+import { program } from 'commander';
 import { generateDocs, generateTypeDefinition } from '../index';
 import { logError } from '../utils/logger';
 
 export function main() {
     try {
-        const cmd = clap
-            .command('react-tsdoc')
+        program
+            .name('react-tsdoc')
             .description('Generate docs for React components')
-            .version('0.0.1');
+            .version('0.1.9');
 
-        cmd.command('types [input.ts] [output.t.ds]')
-            .option('--module-name <name>')
-            .action((actionArgs: { args: string[], options: any }) => {
-                const { args, options } = actionArgs;
-                generateTypeDefinition(args[0], args[1], options.moduleName);
+        program
+            .command('types')
+            .description('Generate type definitions')
+            .argument('[input.ts]', 'Input TypeScript file')
+            .argument('[output.d.ts]', 'Output declaration file')
+            .option('--module-name <name>', 'Module name for type definitions')
+            .action((input, output, options) => {
+                generateTypeDefinition(input, output, options.moduleName);
             });
 
-        cmd.command('docs [input.ts] [output-folder]')
-            .option('--module-name <name>')
-            .action((actionArgs: { args: string[], options: any }) => {
-                const { args, options } = actionArgs;
-                generateDocs(args[0], args[1], options.moduleName);
+        program
+            .command('docs')
+            .description('Generate Markdown documentation')
+            .argument('[input.ts]', 'Input TypeScript file')
+            .argument('[output-folder]', 'Output folder for documentation')
+            .option('--module-name <name>', 'Module name for documentation')
+            .action((input, output, options) => {
+                generateDocs(input, output, options.moduleName);
             });
 
-        cmd.run();
+        program.parse(process.argv);
     } catch (e) {
         logError(e);
     }
