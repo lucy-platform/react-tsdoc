@@ -1,8 +1,8 @@
 
 import React from 'react';
-import TestComponent01 from './components/TestComponent01';
+import TestComponent01, { ABC, Type } from './components/TestComponent01';
 
-type TestFunction = () => void;
+type TestFunction = (type: Type) => void;
 
 interface ReturnType {
 
@@ -12,12 +12,19 @@ interface ReturnType {
  * 
  * test function
  */
-function Test(): ReturnType {
+function Test(param1: string, param2: number): ReturnType {
 
     return {}
 }
 
-function Test2() { }
+/**
+ * @export
+ */
+function Test2() {
+    return {
+        name: 'abc',
+    }
+}
 
 /**
  * @export 
@@ -42,4 +49,4 @@ const useTest = (): CustomHook => {
 /**
  * @export
  */
-function useTest2() { }
+function useTest2(ct: ABC) { }

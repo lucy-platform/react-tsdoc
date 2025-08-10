@@ -105,3 +105,7 @@ function useTest2() { }
 
 
 I want you to analyse the above requirements and the code i provided. then finally give me the dropin replacements for the parts of the codes that needs to be updated to support these features. ask followup questions to ask anything you are not clear. 
+
+
+for docs, we must generate markdown file for each component, hook, function and type. 
+for usage, import them from the module (must be passed like we do for types). then shwo the description, and usage examples. then show the type definition (props in a table ,if nested types are there linked to their respective type pages). for forward ref components we should include a new section called 'Handlers' may be and show what are the availble handlers and ther definitions. for hooks and function its the same, how import, examples, props / params. 

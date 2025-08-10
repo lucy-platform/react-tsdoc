@@ -21,7 +21,7 @@ const TestComponent01: React.FunctionComponent<TestComponent01Props> = (props) =
     return <></>
 }
 
-declare enum Type {
+export enum Type {
     Text = 'text',
     Number = 'number'
 }
@@ -60,4 +60,6 @@ export const MemorizedComponent = memo(BaseComponent);
  */
 export const MemorizedForwardRefComponent = memo(TestComponent02);
 
+
+export type ABC = 'abc'
 export default TestComponent01;
