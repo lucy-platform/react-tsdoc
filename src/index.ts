@@ -1554,7 +1554,7 @@ function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInf
 
     // Related Types section
     if (dependentTypes) {
-        const relatedTypes = getRelatedTypes(comp, dependentTypes);
+        const relatedTypes = getRelatedTypes(comp, dependentTypes, docInfo);
         if (relatedTypes.length > 0) {
             md.addTitle('Related Types', 2);
             const typeLinks = relatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
@@ -1608,7 +1608,7 @@ function generateHookDocFromDocInfo(hook: IReactHook, docInfo: IDocInfo, moduleN
 
     // Related Types section
     if (dependentTypes) {
-        const relatedTypes = getRelatedTypes(hook, dependentTypes);
+        const relatedTypes = getRelatedTypes(hook, dependentTypes, docInfo);
         if (relatedTypes.length > 0) {
             md.addTitle('Related Types', 2);
             const typeLinks = relatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
@@ -1649,7 +1649,7 @@ function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocI
 
     // Related Types section
     if (dependentTypes) {
-        const relatedTypes = getRelatedTypes(func, dependentTypes);
+        const relatedTypes = getRelatedTypes(func, dependentTypes, docInfo);
         if (relatedTypes.length > 0) {
             md.addTitle('Related Types', 2);
             const typeLinks = relatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
@@ -1717,33 +1717,108 @@ function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'unio
     return md.toString();
 }
 
-function getRelatedTypes(item: { propType?: string, refType?: string, stateType?: string, parameters?: any[], return?: string, type?: string }, dependentTypes: Set<string>): string[] {
+function getRelatedTypes(item: { propType?: string, refType?: string, stateType?: string, parameters?: any[], return?: string, type?: string }, dependentTypes: Set<string>, docInfo: IDocInfo): string[] {
     const relatedTypes: string[] = [];
+    const visited = new Set<string>();
 
-    // Check component types
-    if (item.propType && dependentTypes.has(item.propType)) {
-        relatedTypes.push(item.propType);
+    // Helper to extract type names from type strings
+    function extractTypeNames(typeStr: string): string[] {
+        if (!typeStr) return [];
+
+        // More comprehensive type extraction regex
+        const typePattern = /\b([A-Z][a-zA-Z0-9]*)\b/g;
+        const matches = [];
+        let match;
+
+        while ((match = typePattern.exec(typeStr)) !== null) {
+            const typeName = match[1];
+            // Filter out built-in types
+            if (!['React', 'Promise', 'Array', 'Map', 'Set', 'Date', 'Error', 'String', 'Number', 'Boolean'].includes(typeName)) {
+                matches.push(typeName);
+            }
+        }
+
+        return matches;
     }
-    if (item.refType && dependentTypes.has(item.refType)) {
-        relatedTypes.push(item.refType);
+
+    // Recursively collect all related types
+    function collectRelatedTypes(typeName: string) {
+        if (visited.has(typeName) || !dependentTypes.has(typeName)) {
+            return;
+        }
+
+        visited.add(typeName);
+        relatedTypes.push(typeName);
+
+        // Check interfaces
+        if (docInfo.interfaces?.[typeName]) {
+            const intf = docInfo.interfaces[typeName];
+
+            // Extract types from extends clause
+            const extendsMatch = intf.code.match(/extends\s+([^{]+)/);
+            if (extendsMatch) {
+                const extendedTypes = extractTypeNames(extendsMatch[1]);
+                extendedTypes.forEach(t => collectRelatedTypes(t));
+            }
+
+            // Extract types from member types
+            intf.members.forEach(member => {
+                const memberTypes = extractTypeNames(member.type);
+                memberTypes.forEach(t => collectRelatedTypes(t));
+            });
+        }
+
+        // Check unions
+        if (docInfo.unions?.[typeName]) {
+            const union = docInfo.unions[typeName];
+            union.items.forEach(item => {
+                const itemTypes = extractTypeNames(item);
+                itemTypes.forEach(t => collectRelatedTypes(t));
+            });
+        }
+
+        // Check type aliases
+        if (docInfo.typeAliases?.[typeName]) {
+            const alias = docInfo.typeAliases[typeName];
+            const aliasTypes = extractTypeNames(alias.type);
+            aliasTypes.forEach(t => collectRelatedTypes(t));
+        }
+
+        // Check function types
+        if (docInfo.functions?.[typeName]) {
+            const func = docInfo.functions[typeName];
+            const returnTypes = extractTypeNames(func.return);
+            returnTypes.forEach(t => collectRelatedTypes(t));
+
+            func.parameters.forEach(param => {
+                const paramTypes = extractTypeNames(param.type);
+                paramTypes.forEach(t => collectRelatedTypes(t));
+            });
+        }
     }
-    if (item.stateType && dependentTypes.has(item.stateType)) {
-        relatedTypes.push(item.stateType);
+
+    // Start collection from item's direct types
+    if (item.propType) {
+        collectRelatedTypes(item.propType);
+    }
+    if (item.refType) {
+        collectRelatedTypes(item.refType);
+    }
+    if (item.stateType) {
+        collectRelatedTypes(item.stateType);
     }
 
     // Check function/hook parameter and return types
     if (item.parameters) {
         item.parameters.forEach(param => {
-            if (dependentTypes.has(param.type)) {
-                relatedTypes.push(param.type);
-            }
+            collectRelatedTypes(param.type);
         });
     }
-    if (item.return && dependentTypes.has(item.return)) {
-        relatedTypes.push(item.return);
+    if (item.return) {
+        collectRelatedTypes(item.return);
     }
-    if (item.type && dependentTypes.has(item.type)) {
-        relatedTypes.push(item.type);
+    if (item.type) {
+        collectRelatedTypes(item.type);
     }
 
     return [...new Set(relatedTypes)]; // Remove duplicates
