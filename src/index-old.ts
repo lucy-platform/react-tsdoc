@@ -2,7 +2,6 @@ import * as tsdoc from '@microsoft/tsdoc';
 import * as fs from 'fs';
 import * as ts from 'typescript';
 import chalk from 'chalk';
-import { DocNode } from '@microsoft/tsdoc';
 import clap from 'clap';
 import mkdirp from 'mkdirp';
 
