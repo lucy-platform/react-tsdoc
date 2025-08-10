@@ -6,18 +6,20 @@
             "request": "launch",
             "name": "Debug react-tsdoc CLI",
             "program": "${workspaceFolder}/bin/react-tsdoc.js",
-            // "args": [
-            //     "docs",
-            //     "./test/sample-app/src/index.tsx",
-            //     "./test/dist/docs/"
-            // ],
             "args": [
-                "types",
+                "docs",
                 "./test/sample-app/src/index.tsx",
-                "./test/dist/types/types.d.ts",
+                "./test/dist/docs/",
                 "--module-name",
                 "my-types"
             ],
+            // "args": [
+            //     "types",
+            //     "./test/sample-app/src/index.tsx",
+            //     "./test/dist/types/types.d.ts",
+            //     "--module-name",
+            //     "my-types"
+            // ],
             "skipFiles": [
                 "<node_internals>/**"
             ],

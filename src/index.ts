@@ -109,6 +109,9 @@ interface IInterfaceMember {
     name: string;
     type: string;
     comment: string;
+    isOptional?: boolean;
+    defaultValue?: string;
+    exampleValue?: string;
 }
 interface IInterfaceDeclaration extends ITypeDefinition {
     name: string;
@@ -481,8 +484,8 @@ function getCode(node: ts.Node) {
 function parseFunctionSignature(node: ts.Node, docInfo: IDocInfo) {
 
 }
+// Replace the existing parseInterfaceDeclaration function
 function parseInterfaceDeclaration(node: ts.Node, docInfo: IDocInfo) {
-
     let name = (node as any).name.getText();
     let members = (node as any).members;
     if (members.length == 1 && members[0].kind == ts.SyntaxKind.CallSignature) {
@@ -493,13 +496,32 @@ function parseInterfaceDeclaration(node: ts.Node, docInfo: IDocInfo) {
     let inf: IInterfaceDeclaration = { comment: docs, members: [], name: name, code: getCode(node) };
     for (let i = 0; i < members.length; i++) {
         let member = members[i];
-        let name = member.name.getText();
-        let type = member.type.getText();
+        let memberName = member.name.getText();
+        let memberType = member.type.getText();
         let mdoc = extractComment(member);
-        inf.members.push({ comment: mdoc, name: name, type: type });
+        let isOptional = member.questionToken !== undefined;
+
+        // Parse JSDoc for @default and @example
+        let defaultValue: string | undefined;
+        let exampleValue: string | undefined;
+
+        try {
+            const defaultMatch = mdoc.match(/@default\s+(.+)/);
+            const exampleMatch = mdoc.match(/@example\s+(.+)/);
+            defaultValue = defaultMatch ? defaultMatch[1].trim() : undefined;
+            exampleValue = exampleMatch ? exampleMatch[1].trim() : undefined;
+        } catch { }
+
+        inf.members.push({
+            comment: mdoc,
+            name: memberName,
+            type: isOptional ? memberType : memberType,
+            isOptional,
+            defaultValue,
+            exampleValue
+        });
     }
     docInfo.interfaces[name] = inf;
-
 }
 
 
@@ -1266,7 +1288,6 @@ function generateComplexComponentType(comp: IReactComponent, docInfo: IDocInfo):
 }
 
 function generateExportModule(docs: IDocObject, docInfo: IDocInfo, options: IExportModuleOptions) {
-    // debugger
     let code = '';
     const openedModule = !!(options && options.moduleName);
     if (openedModule) {
@@ -1435,79 +1456,296 @@ function generateTypeDoc(cdoc: ITypeDocumentation, docs: IDocObject) {
 
     return md.toString();
 }
-function linkedType(t: string, docs: IDocObject) {
-    if (docs.types.find(x => x.name.toUpperCase() == t.toUpperCase())) {
-        return `[${t}](../types/${t}.md)`;
-    }
-    return t;
-}
-function generateComponentDoc(cdoc: IComponentDocumentation, docs: IDocObject) {
+// function generateComponentDoc(cdoc: IComponentDocumentation, docs: IDocObject) {
+//     let md = new MarkdownBuilder();
+//     md.addTitle(cdoc.name, 1)
+//     md.addParagraph(cdoc.summary);
+//     md.addTitle('Installation', 2);
+//     md.addCode(`import {${cdoc.name}} from 'uxp/components';`);
+//     if (cdoc.examples.length > 0) {
+//         md.addTitle('Examples', 2);
+//         for (let i in cdoc.examples) {
+//             md.addCode(cdoc.examples[i].summary)
+//         }
+//     }
+//     if (cdoc.props.length > 0) {
+
+//         md.addTitle('Properties', 2);
+//         md.addTable(cdoc.props.map(p => ({ Name: p.name, Type: linkedType(p.type, docs), Description: p.summary })));
+//         for (let i in cdoc.props) {
+//             let prop = cdoc.props[i];
+//             md.addTitle(prop.name, 3);
+//             md.addParagraph('---');
+//             md.addParagraph(prop.summary);
+//             md.addTable([{ 'type': linkedType(prop.type, docs) }]);
+
+//             for (let j in prop.examples) {
+//                 md.addCode(prop.examples[j].summary);
+//             }
+//         }
+
+//     }
+//     return md.toString();
+// }
+
+
+function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInfo, moduleName?: string) {
     let md = new MarkdownBuilder();
-    md.addTitle(cdoc.name, 1)
-    md.addParagraph(cdoc.summary);
+    const [summary, examples] = parseTSDocComment(comp.comment);
+
+    md.addTitle(comp.name, 1);
+    md.addParagraph(summary);
+
+    // Installation
     md.addTitle('Installation', 2);
-    md.addCode(`import {${cdoc.name}} from 'uxp/components';`);
-    if (cdoc.examples.length > 0) {
+    const moduleImport = moduleName || 'your-module';
+    md.addCode(`import { ${comp.name} } from '${moduleImport}';`);
+
+    // Examples
+    if (examples.length > 0) {
         md.addTitle('Examples', 2);
-        for (let i in cdoc.examples) {
-            md.addCode(cdoc.examples[i].summary)
+        for (let example of examples) {
+            md.addCode(example.summary);
         }
     }
-    if (cdoc.props.length > 0) {
 
+    // Extract actual prop/ref types from complex types
+    const { propType, refType } = extractTypesFromComplex(comp, docInfo);
+
+    // Properties from interface
+    const propInterface = docInfo.interfaces[propType];
+    if (propInterface && propInterface.members.length > 0) {
         md.addTitle('Properties', 2);
-        md.addTable(cdoc.props.map(p => ({ Name: p.name, Type: linkedType(p.type, docs), Description: p.summary })));
-        for (let i in cdoc.props) {
-            let prop = cdoc.props[i];
-            md.addTitle(prop.name, 3);
-            md.addParagraph('---');
-            md.addParagraph(prop.summary);
-            md.addTable([{ 'type': linkedType(prop.type, docs) }]);
-
-            for (let j in prop.examples) {
-                md.addCode(prop.examples[j].summary);
-            }
-        }
-
+        const propTableData = propInterface.members.map(member => ({
+            Name: member.name,
+            Type: linkedType(member.type, docInfo),
+            Mandatory: member.isOptional ? 'No' : 'Yes',
+            'Default Value': member.defaultValue || '-',
+            'Example Value': member.exampleValue || '-'
+        }));
+        md.addTable(propTableData);
     }
+
+    // Forward ref handlers
+    if (refType) {
+        const refInterface = docInfo.interfaces[refType];
+        if (refInterface && refInterface.members.length > 0) {
+            md.addTitle('Ref Handlers', 2);
+            md.addParagraph('Available methods through ref:');
+            const handlersTable = refInterface.members.map(member => {
+                const [memberSummary] = parseTSDocComment(member.comment || '');
+                return {
+                    Method: member.name,
+                    Type: member.type,
+                    Description: memberSummary || '-'
+                };
+            });
+            md.addTable(handlersTable);
+        }
+    }
+
     return md.toString();
 }
-function generateDocs(root: string, outputPath: string) {
+
+// Helper function to extract types from complex component declarations
+function extractTypesFromComplex(comp: IReactComponent, docInfo: IDocInfo): { propType: string, refType?: string } {
+    // Use the same logic as generateComplexComponentType but extract instead of generate
+
+    let actualComp = comp;
+    // If this component references another component, use the referenced component's details
+    if (comp.referencedComponent && docInfo.components[comp.referencedComponent]) {
+        actualComp = docInfo.components[comp.referencedComponent];
+    }
+
+    return {
+        propType: actualComp.propType,
+        refType: actualComp.refType
+    };
+}
+
+function generateHookDocFromDocInfo(hook: IReactHook, docInfo: IDocInfo, moduleName?: string) {
+    let md = new MarkdownBuilder();
+    const [summary, examples] = parseTSDocComment(hook.comment);
+
+    md.addTitle(hook.name, 1);
+    md.addParagraph(summary);
+
+    // Installation
+    md.addTitle('Installation', 2);
+    const moduleImport = moduleName || 'your-module';
+    md.addCode(`import { ${hook.name} } from '${moduleImport}';`);
+
+    // Signature
+    md.addTitle('Signature', 2);
+    const params = hook.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
+    md.addCode(`function ${hook.name}(${params}): ${hook.type}`);
+
+    // Examples
+    if (examples.length > 0) {
+        md.addTitle('Examples', 2);
+        for (let example of examples) {
+            md.addCode(example.summary);
+        }
+    }
+
+    return md.toString();
+}
+
+function generateFunctionDocFromDocInfo(func: IFunctionSignature, docInfo: IDocInfo, moduleName?: string) {
+    let md = new MarkdownBuilder();
+    const [summary, examples] = parseTSDocComment(func.comment);
+
+    const functionName = Object.keys(docInfo.functions).find(key => docInfo.functions[key] === func) || 'function';
+
+    md.addTitle(functionName, 1);
+    md.addParagraph(summary);
+
+    // Installation
+    md.addTitle('Installation', 2);
+    const moduleImport = moduleName || 'your-module';
+    md.addCode(`import { ${functionName} } from '${moduleImport}';`);
+
+    // Signature
+    md.addTitle('Signature', 2);
+    md.addCode(func.code);
+
+    // Examples
+    if (examples.length > 0) {
+        md.addTitle('Examples', 2);
+        for (let example of examples) {
+            md.addCode(example.summary);
+        }
+    }
+
+    return md.toString();
+}
+
+function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' | 'union' | 'enum' | 'type', docInfo: IDocInfo, moduleName?: string) {
+    let md = new MarkdownBuilder();
+    const [summary, examples] = parseTSDocComment(typeInfo.comment);
+
+    md.addTitle(typeInfo.name, 1);
+    md.addParagraph(summary);
+
+    // Definition
+    md.addTitle('Definition', 2);
+    md.addCode(typeInfo.code);
+
+    // Installation/Usage
+    md.addTitle('Usage', 2);
+    const moduleImport = moduleName || 'your-module';
+    md.addCode(`import { ${typeInfo.name} } from '${moduleImport}';`);
+
+    // Examples
+    if (examples.length > 0) {
+        md.addTitle('Examples', 2);
+        for (let example of examples) {
+            md.addCode(example.summary);
+        }
+    }
+
+    return md.toString();
+}
+
+// Updated linkedType function to work with docInfo
+function linkedType(type: string, docInfo: IDocInfo): string {
+    const cleanType = type.replace(/\[\]$/, ''); // Remove array notation for checking
+
+    if (docInfo.interfaces[cleanType] || docInfo.unions[cleanType] ||
+        docInfo.enums[cleanType] || docInfo.typeAliases?.[cleanType]) {
+        return `[${type}](../types/${cleanType}.md)`;
+    }
+    return type;
+}
+
+function generateDocs(root: string, outputPath: string, moduleName?: string) {
     let [docInfo, docs] = load(root);
-    let components = docs.components;
     if (outputPath.endsWith('/')) outputPath = outputPath.substring(0, outputPath.length - 1);
 
+    // Create directories
     mkdirp.sync(outputPath + '/components/');
     mkdirp.sync(outputPath + '/types/');
     mkdirp.sync(outputPath + '/hooks/');
+    mkdirp.sync(outputPath + '/functions/');
 
-    for (let i in components) {
-        let component = components[i];
-        if (ComponentFlags.Export === (component.flags & ComponentFlags.Export)) {
-            let md = generateComponentDoc(component, docs);
-            let path = outputPath + '/components/' + component.name + '.md';
+    // Collect all dependent types (same logic as types command)
+    const dependentTypes = collectAllDependentTypes(docInfo);
 
-            console.log(chalk.gray('Writing component', component.name, 'to', path));
-            fs.writeFileSync(path, md.toString());
-        }
-    }
-    for (let i in docs.types) {
-        let type = docs.types[i];
-        if (ComponentFlags.Export === (type.flags & ComponentFlags.Export)) {
-            let md = generateTypeDoc(type, docs);
-            let path = outputPath + '/types/' + type.name + '.md';
-            console.log(chalk.gray('Writing type', type.name, 'to', path));
-            fs.writeFileSync(path, md.toString());
+    // Generate component docs
+    for (let cn in docInfo.components) {
+        let componentInfo = docInfo.components[cn];
+        if (hasExportAnnotation(componentInfo.comment)) {
+            let md = generateComponentDocFromDocInfo(componentInfo, docInfo, moduleName);
+            let path = outputPath + '/components/' + componentInfo.name + '.md';
+            console.log(chalk.gray('Writing component', componentInfo.name, 'to', path));
+            fs.writeFileSync(path, md);
         }
     }
 
-    for (let i in docs.hooks) {
-        let hook = docs.hooks[i];
-        if (ComponentFlags.Export === (hook.flags & ComponentFlags.Export)) {
-            let md = generateHookDoc(hook, docs);
-            let path = outputPath + '/hooks/' + hook.name + '.md';
-            console.log(chalk.gray('Writing hook', hook.name, 'to', path));
-            fs.writeFileSync(path, md.toString());
+    // Generate type docs for all dependent types
+    for (const typeName of dependentTypes) {
+        if (docInfo.interfaces?.[typeName]) {
+            const typeInfo = docInfo.interfaces[typeName];
+            let md = generateTypeDocFromDocInfo(typeInfo, 'interface', docInfo, moduleName);
+            let path = outputPath + '/types/' + typeInfo.name + '.md';
+            console.log(chalk.gray('Writing type', typeInfo.name, 'to', path));
+            fs.writeFileSync(path, md);
+        }
+
+        if (docInfo.unions?.[typeName]) {
+            const typeInfo = docInfo.unions[typeName];
+            let md = generateTypeDocFromDocInfo(typeInfo, 'union', docInfo, moduleName);
+            let path = outputPath + '/types/' + typeName + '.md';
+            console.log(chalk.gray('Writing type', typeName, 'to', path));
+            fs.writeFileSync(path, md);
+        }
+
+        if (docInfo.enums?.[typeName]) {
+            const typeInfo = docInfo.enums[typeName];
+            let md = generateTypeDocFromDocInfo(typeInfo, 'enum', docInfo, moduleName);
+            let path = outputPath + '/types/' + typeInfo.name + '.md';
+            console.log(chalk.gray('Writing type', typeInfo.name, 'to', path));
+            fs.writeFileSync(path, md);
+        }
+
+        if (docInfo.typeAliases?.[typeName]) {
+            const typeInfo = docInfo.typeAliases[typeName];
+            let md = generateTypeDocFromDocInfo(typeInfo, 'type', docInfo, moduleName);
+            let path = outputPath + '/types/' + typeInfo.name + '.md';
+            console.log(chalk.gray('Writing type', typeInfo.name, 'to', path));
+            fs.writeFileSync(path, md);
+        }
+
+        if (docInfo.functions?.[typeName]) {
+            const typeInfo = docInfo.functions[typeName];
+            let md = generateFunctionDocFromDocInfo(typeInfo, docInfo, moduleName);
+            let path = outputPath + '/types/' + typeName + '.md';
+            console.log(chalk.gray('Writing function type', typeName, 'to', path));
+            fs.writeFileSync(path, md);
+        }
+    }
+
+    // Generate hook docs
+    for (let hn in docInfo.hooks) {
+        let hookInfo = docInfo.hooks[hn];
+        if (hasExportAnnotation(hookInfo.comment)) {
+            let md = generateHookDocFromDocInfo(hookInfo, docInfo, moduleName);
+            let path = outputPath + '/hooks/' + hookInfo.name + '.md';
+            console.log(chalk.gray('Writing hook', hookInfo.name, 'to', path));
+            fs.writeFileSync(path, md);
+        }
+    }
+
+    // Generate function docs (exclude those already generated as types)
+    for (let fn in docInfo.functions) {
+        if (!dependentTypes.has(fn)) {
+            let functionInfo = docInfo.functions[fn];
+            if (hasExportAnnotation(functionInfo.comment)) {
+                let md = generateFunctionDocFromDocInfo(functionInfo, docInfo, moduleName);
+                let path = outputPath + '/functions/' + fn + '.md';
+                console.log(chalk.gray('Writing function', fn, 'to', path));
+                fs.writeFileSync(path, md);
+            }
         }
     }
 }
@@ -1544,11 +1782,11 @@ export function main() {
             ;
 
         cmd.command('docs [input.ts] [output-folder]')
+            .option('--module-name <name>')
             .action((actionArgs: { args: string[], options: any }) => {
                 let { args, options } = actionArgs;
-                generateDocs(args[0], args[1]);
-            })
-            ;
+                generateDocs(args[0], args[1], options.moduleName);
+            });
 
         cmd.run();
     } catch (e) {
