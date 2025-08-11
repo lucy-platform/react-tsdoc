@@ -60,7 +60,7 @@ export function analyzeComponentPattern(
             if (innerParsed) {
                 return { ...innerParsed, innerWrappers: [...(innerParsed.innerWrappers || []), 'memo'] };
             }
-            const propMatch = innerType.match(/React\.FunctionComponent<([^>]+)>/) || innerType.match(/React\.FC<([^>]+)>/);
+            const propMatch = innerType.match(/React\.FunctionComponent<({[^}]*}|[^>]+)>/) || innerType.match(/React\.FC<({[^}]*}|[^>]+)>/);
             return {
                 type: 'functional',
                 propType: propMatch ? propMatch[1].trim() : 'any',
@@ -69,7 +69,7 @@ export function analyzeComponentPattern(
         }
 
         if (/\b(React\.)?ForwardRefExoticComponent\b/.test(typeText)) {
-            const frMatch = typeText.match(/<React\.RefAttributes<([^>]+)>\s*&\s*([^>]+)>/);
+            const frMatch = typeText.match(/<React\.RefAttributes<([^>]+)>\s*&\s*({[^}]*}|[^>]+)>/);
             if (frMatch) {
                 return {
                     type: 'forwardRef',
@@ -81,7 +81,7 @@ export function analyzeComponentPattern(
         }
 
         if (/\b(React\.)?(FunctionComponent|FC)\b/.test(typeText)) {
-            const propMatch = typeText.match(/<\s*([^>,]+)/);
+            const propMatch = typeText.match(/<\s*({[^}]*}|[^>]+)>/);
             return {
                 type: 'functional',
                 propType: propMatch ? propMatch[1].trim() : 'any'
@@ -89,7 +89,7 @@ export function analyzeComponentPattern(
         }
 
         if (/\b(React\.)?Component\b/.test(typeText)) {
-            const compMatch = typeText.match(/<([^,]+)(?:,\s*([^>]+))?/);
+            const compMatch = typeText.match(/<({[^}]*}|[^,]+)(?:,\s*({[^}]*}|[^>]+))?>/);
             return {
                 type: 'class',
                 propType: compMatch ? compMatch[1].trim() : 'any',
@@ -143,7 +143,7 @@ export function analyzeComponentPattern(
                 const decl = symbol.declarations[0];
                 if (ts.isVariableDeclaration(decl) && decl.type) {
                     const typeText = decl.type.getText();
-                    const propMatch = typeText.match(/React\.FunctionComponent<([^>]+)>/) || typeText.match(/React\.FC<([^>]+)>/);
+                    const propMatch = typeText.match(/React\.FunctionComponent<({[^}]*}|[^>]+)>/) || typeText.match(/React\.FC<({[^}]*}|[^>]+)>/);
                     propType = propMatch ? propMatch[1].trim() : 'any';
                 }
             }
