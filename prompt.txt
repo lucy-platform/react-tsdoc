@@ -1,0 +1,111 @@
+You are an expert in node, react and typescript. 
+
+Here i have a cli tool that extract and generate docs and type definitions from comments(ts doc style) developers put in the codes. 
+
+I want you to analyse it, understand and then make changes to support the below requirements. 
+
+1. this tool must support all kinds of react components. 
+    - functional, fc, class, forwardref, memo, etc and combinations of them (example: memo(forwardref))
+    - these components must be explicitly declared with proper type definitions - meaning normal functions (named and arrow) must not be identified as components. 
+    - if a function starts with 'use` should be consider as a hook 
+2. tool should support default export and named export for components
+    - export default MyComponent 
+    - export const MyComponent 
+3. only consider functions, hooks and components that has @export annotation 
+4. all the type definitions that required for these components, hooks and functions must be extracted (even if they don't have @export annotation)
+5. any related type definitions (unions, extended, nested, etc)  must also extracted
+6. when generatin types (when running types command), in the generated type definition file, all types/definitions must be exported and there shouldnot be any duplicates. 
+7. for complex components , tool should inteligently add proper types 
+example:
+    ```
+  
+declare enum Type {
+    Text = 'text',
+    Number = 'number'
+}
+interface TestComponent02props {
+    name: string,
+    type: Type
+}
+
+export interface TestComponent02handles {
+    save: () => boolean
+}
+/**
+ * 
+ * @export
+ * 
+ * Forward ref component 
+ */
+export const TestComponent02: React.ForwardRefExoticComponent<React.RefAttributes<TestComponent02handles> & TestComponent02props> = forwardRef((props, ref) => {
+
+    return <></>
+})
+
+const BaseComponent: FunctionComponent<TestComponent01Props> = (props) => {
+    return <></>
+}
+
+/**
+ * @export
+ * 
+ * Memorized component
+ */
+export const MemorizedComponent = memo(BaseComponent);
+
+export const MemorizedForwardRefComponent = memo(TestComponent02);
+
+```
+in this case MemorizedForwardRefComponent compoent must have a proper type definition dericed based on the memorisation of TestComponent02, like this React.MemoExoticComponent<React.ForwardRefExoticComponent<React.RefAttributes<TestComponent02handles> & TestComponent02props>>
+
+here are some sample codes that will be used, these are not the only ones, there could be differnt things or things i have missed. we need to make a generic tool that can do all these things. 
+
+import TestComponent01 from "./components/TestComponent01";
+type TestFunction = () => void;
+
+interface ReturnType {
+
+}
+/**
+ * @export 
+ * 
+ * test function
+ */
+function Test(): ReturnType {
+
+    return {}
+}
+
+function Test2() { }
+
+/**
+ * @export 
+ * test arrow function
+ */
+const Test3: TestFunction = () => { }
+
+
+type CustomHook = {
+    save: () => Promise<boolean>
+}
+/**
+ * @export
+ */
+const useTest = (): CustomHook => {
+
+    return {
+        save: async () => true
+    }
+}
+
+/**
+ * @export
+ */
+function useTest2() { }
+
+
+I want you to analyse the above requirements and the code i provided. then finally give me the dropin replacements for the parts of the codes that needs to be updated to support these features. ask followup questions to ask anything you are not clear. 
+
+
+for docs, we must generate markdown file for each component, hook, function and type. 
+for usage, import them from the module (must be passed like we do for types). then shwo the description, and usage examples. then show the type definition (props in a table ,if nested types are there linked to their respective type pages). for forward ref components we should include a new section called 'Handlers' may be and show what are the availble handlers and ther definitions. for hooks and function its the same, how import, examples, props / params. 

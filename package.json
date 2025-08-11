@@ -1,37 +1,47 @@
 {
   "name": "@iviva/react-tsdoc",
-  "version": "0.1.8",
-  "description": "Tool to generate documentation and type definitions for your react component library",
+  "version": "0.2.0",
+  "description": "Tool to generate documentation and type definitions for your React component library",
   "keywords": [
     "react",
-    "documentation"
+    "documentation",
+    "typescript",
+    "tsdoc"
   ],
   "homepage": "https://github.com/lucy-platform/react-tsdoc",
-  "dependencies": {
-    "@microsoft/tsdoc": "^0.12.20",
-    "@types/mkdirp": "^1.0.1",
-    "@types/node": "^14.6.0",
-    "chalk": "^4.1.0",
-    "clap": "^3.0.0-beta.1",
-    "mkdirp": "^1.0.4",
-    "typescript": "^3.9.7"
-  },
+  "license": "ISC",
+  "author": "",
+  "main": "dist/cli/index.js",
   "bin": {
-    "react-tsdoc": "bin/react-tsdoc.js"
+    "react-tsdoc": "dist/cli/index.js"
   },
   "scripts": {
+    "build": "tsc --build",
     "watch": "tsc --watch",
-    "build": "tsc"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
   },
-  "main": "index.js",
-  "devDependencies": {},
+  "dependencies": {
+    "@microsoft/tsdoc": "^0.12.20",
+    "chalk": "^4.1.0",
+    "commander": "^9.4.0",
+    "mkdirp": "^1.0.4",
+    "typescript": "^4.9.5"
+  },
+  "devDependencies": {
+    "@types/mkdirp": "^1.0.1",
+    "@types/node": "^14.6.0",
+    "ts-node": "^10.9.1"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/lucy-platform/react-tsdoc.git"
   },
-  "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/lucy-platform/react-tsdoc/issues"
-  }
+  },
+  "files": [
+    "dist/**/*",
+    "bin/**/*"
+  ]
 }
