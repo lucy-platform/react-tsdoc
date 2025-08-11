@@ -1,11 +1,17 @@
 import * as ts from 'typescript';
 import { IDocInfo, IReactComponent, IFunctionParam, IReactHookParam, IInterfaceDeclaration } from './types';
-import { logCompilerMessage, logDebug } from '../utils/logger';
+import { logCompilerMessage, logDebug, logWarning } from '../utils/logger';
 
 export function extractComment(node: ts.Node): string {
-    const fullText = node.getSourceFile().getFullText();
-    const comments = ts.getLeadingCommentRanges(fullText, node.pos);
-    return comments ? comments.map(c => fullText.slice(c.pos, c.end)).join('\n') : '';
+    try {
+        if (!node || !node.getSourceFile) return '';
+        const fullText = node.getSourceFile().getFullText();
+        const comments = ts.getLeadingCommentRanges(fullText, node.pos);
+        return comments ? comments.map(c => fullText.slice(c.pos, c.end)).join('\n') : '';
+    } catch (error) {
+        console.warn('Error extracting comment:', error);
+        return '';
+    }
 }
 
 export function getCode(node: ts.Node): string {
@@ -212,8 +218,10 @@ export function parseInterfaceDeclaration(node: ts.Node, docInfo: IDocInfo) {
     const inf: IInterfaceDeclaration = { comment: docs, members: [], name, code: getCode(node) };
 
     for (const member of members) {
-        const memberName = member.name.getText();
-        const memberType = member.type.getText();
+        const memberName = member?.name?.getText?.();
+        if (!memberName) continue;
+        const memberType = member?.type?.getText?.() || 'undefined';
+
         const mdoc = extractComment(member);
         const isOptional = member.questionToken !== undefined;
 
@@ -243,8 +251,8 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
     if (!ts.isVariableDeclaration(node)) return;
 
     const decl = node as ts.VariableDeclaration;
-    const name = decl.name?.getText();
-    if (!name) return;
+    const name = decl.name?.getText?.();
+    if (!name) return; // Add safety check
 
     const parentForComments = (decl.parent && decl.parent.parent) ? decl.parent.parent : node.parent;
     const comment = extractComment(parentForComments || node) || '';
@@ -525,7 +533,7 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
 }
 
 export function walkTree(node: ts.Node, docInfo: IDocInfo, checker: ts.TypeChecker) {
-    if (!node || !node.getSourceFile()) return; // Prevent undefined node errors
+    if (!node || !node.getSourceFile()) return;
 
     switch (node.kind) {
         case ts.SyntaxKind.TypeAliasDeclaration:
@@ -546,18 +554,45 @@ export function walkTree(node: ts.Node, docInfo: IDocInfo, checker: ts.TypeCheck
         case ts.SyntaxKind.FunctionDeclaration:
             parseFunctionDeclaration(node, docInfo, checker);
             break;
+
+        // Add handling for common nodes that don't need processing
+        case ts.SyntaxKind.SourceFile:
+        case ts.SyntaxKind.ImportDeclaration:
+        case ts.SyntaxKind.ImportClause:
+        case ts.SyntaxKind.NamedImports:
+        case ts.SyntaxKind.ImportSpecifier:
+        case ts.SyntaxKind.Identifier:
+        case ts.SyntaxKind.StringLiteral:
+        case ts.SyntaxKind.NumericLiteral:
+        case ts.SyntaxKind.ExportKeyword:
+        case ts.SyntaxKind.ExportDeclaration:
+        case ts.SyntaxKind.DefaultKeyword:
+        case ts.SyntaxKind.AsExpression:
         case ts.SyntaxKind.AwaitExpression:
         case ts.SyntaxKind.CallExpression:
         case ts.SyntaxKind.ElementAccessExpression:
         case ts.SyntaxKind.PropertyAccessExpression:
-            // Handle async/await, function calls, and optional chaining
+            // These are common nodes that don't need special processing
+            // Just continue traversing their children
             break;
+
         default:
-            // Log unknown nodes for debugging
-            logDebug(`Unhandled node kind: ${ts.SyntaxKind[node.kind]} at ${node.getSourceFile()?.fileName}:${node.pos}`);
+            // Only log truly unknown/unexpected nodes
+            if (node.kind > ts.SyntaxKind.LastToken && process.env.VERBOSE_DEBUG) {
+                logDebug(`Unhandled node kind: ${ts.SyntaxKind[node.kind]} at ${node.getSourceFile()?.fileName}:${node.pos}`);
+            }
     }
 
-    node.forEachChild(child => walkTree(child, docInfo, checker));
+    // Add error handling for child traversal
+    try {
+        node.forEachChild(child => {
+            if (child) {
+                walkTree(child, docInfo, checker);
+            }
+        });
+    } catch (error) {
+        logWarning(`Error traversing children of ${ts.SyntaxKind[node.kind]}:`, error);
+    }
 }
 
 export function validateProgram(program: ts.Program) {
