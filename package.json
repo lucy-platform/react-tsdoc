@@ -1,6 +1,6 @@
 {
   "name": "@iviva/react-tsdoc",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Tool to generate documentation and type definitions for your React component library",
   "keywords": [
     "react",
@@ -13,7 +13,7 @@
   "author": "",
   "main": "dist/cli/index.js",
   "bin": {
-    "react-tsdoc": "dist/cli/index.js"
+    "react-tsdoc": "bin/react-tsdoc.js"
   },
   "scripts": {
     "build": "tsc --build",
