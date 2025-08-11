@@ -1,4 +1,4 @@
-import { IDocInfo, IDocObject, IExportModuleOptions, ComponentFlags, IReactComponent } from '../../core/types';
+import { IDocInfo, IExportModuleOptions, IReactComponent } from '../../core/types';
 import { hasExportAnnotation } from '../../utils/type-helpers';
 import { indentCode } from '../../utils/file';
 import { linkedType } from '../../utils/type-helpers';
@@ -155,7 +155,7 @@ export function generateComplexComponentType(comp: IReactComponent, docInfo: IDo
     return baseType;
 }
 
-export function generateExportModule(docs: IDocObject, docInfo: IDocInfo, options: IExportModuleOptions) {
+export function generateExportModule(docInfo: IDocInfo, options: IExportModuleOptions) {
     let code = '';
     const openedModule = !!(options && options.moduleName);
     if (openedModule) {

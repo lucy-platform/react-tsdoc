@@ -24,32 +24,6 @@ export function generateTypeDocFromDocInfo(typeInfo: any, typeKind: 'interface' 
         }
     }
 
-    // if (dependentTypes) {
-    //     const relatedTypes: string[] = [];
-
-    //     if (typeKind === 'interface' && typeInfo.members) {
-    //         typeInfo.members.forEach((member: any) => {
-    //             if (member.type && dependentTypes.has(member.type)) {
-    //                 relatedTypes.push(member.type);
-    //             }
-    //         });
-    //     }
-
-    //     if (typeKind === 'union' && typeInfo.items) {
-    //         typeInfo.items.forEach((item: string) => {
-    //             if (dependentTypes.has(item)) {
-    //                 relatedTypes.push(item);
-    //             }
-    //         });
-    //     }
-
-    //     const uniqueRelatedTypes = [...new Set(relatedTypes)];
-    //     if (uniqueRelatedTypes.length > 0) {
-    //         md.addTitle('Related Types', 2);
-    //         const typeLinks = uniqueRelatedTypes.map(typeName => `- [${typeName}](../types/${typeName}.md)`).join('\n');
-    //         md.addParagraph(typeLinks);
-    //     }
-    // }
     if (dependentTypes) {
         // Prepare a shape that getRelatedTypes can consume
         const typeSearchTarget: any = { type: typeInfo.name };

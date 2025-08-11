@@ -1,5 +1,5 @@
 import * as ts from 'typescript';
-import { IDocInfo, IDocObject, IExportModuleOptions, IComponentDocumentation, IHookDocumentation, ITypeDocumentation, ComponentFlags } from './core/types';
+import { IDocInfo, IDocObject, IComponentDocumentation, IHookDocumentation, ITypeDocumentation, ComponentFlags } from './core/types';
 import { walkTree, validateProgram, getSources } from './core/analyzer';
 import { generateComponentDocFromDocInfo, generatePropDocs } from './generators/docs/component';
 import { generateHookDocFromDocInfo } from './generators/docs/hook';
@@ -9,57 +9,8 @@ import { generateExportModule, collectAllDependentTypes } from './generators/typ
 import { createDirectories, writeFile } from './utils/file';
 import { logDebug, logError } from './utils/logger';
 import { hasExportAnnotation } from './utils/type-helpers';
-import { parseTSDocComment } from './core/parser';
 
-export function generateDocObject(docInfo: IDocInfo): IDocObject {
-    const components: IComponentDocumentation[] = [];
-    for (const cn in docInfo.components) {
-        const componentDoc: IComponentDocumentation = { examples: [], name: cn, props: [], summary: '', flags: ComponentFlags.None };
-        const componentInfo = docInfo.components[cn];
-        [componentDoc.summary, componentDoc.examples, componentDoc.flags] = parseTSDocComment(componentInfo.comment);
-
-        const propType = docInfo.interfaces[componentInfo.propType];
-        if (propType) {
-            componentDoc.props = generatePropDocs(propType);
-        }
-        components.push(componentDoc);
-    }
-
-    const hooks: IHookDocumentation[] = [];
-    for (const hi in docInfo.hooks) {
-        const hook = docInfo.hooks[hi];
-        const hookDoc: IHookDocumentation = { name: hook.name, flags: ComponentFlags.None, summary: '', examples: [] };
-        [hookDoc.summary, hookDoc.examples, hookDoc.flags] = parseTSDocComment(hook.comment);
-        hooks.push(hookDoc);
-    }
-
-    const types: ITypeDocumentation[] = [];
-    for (const k of Object.keys(docInfo.interfaces)) {
-        const inf = docInfo.interfaces[k];
-        const typeDoc: ITypeDocumentation = { examples: [], name: inf.name, summary: '', type: 'interface', code: '', flags: ComponentFlags.None };
-        typeDoc.code = inf.code;
-        [typeDoc.summary, typeDoc.examples, typeDoc.flags] = parseTSDocComment(inf.comment);
-        types.push(typeDoc);
-    }
-    for (const k of Object.keys(docInfo.functions)) {
-        const inf = docInfo.functions[k];
-        const typeDoc: ITypeDocumentation = { examples: [], name: k, summary: '', type: 'function', code: '', flags: ComponentFlags.None };
-        typeDoc.code = inf.code;
-        [typeDoc.summary, typeDoc.examples, typeDoc.flags] = parseTSDocComment(inf.comment);
-        types.push(typeDoc);
-    }
-    for (const k of Object.keys(docInfo.unions)) {
-        const inf = docInfo.unions[k];
-        const typeDoc: ITypeDocumentation = { examples: [], name: k, summary: '', type: 'union', code: '', flags: ComponentFlags.None };
-        typeDoc.code = inf.code;
-        [typeDoc.summary, typeDoc.examples, typeDoc.flags] = parseTSDocComment(inf.comment);
-        types.push(typeDoc);
-    }
-
-    return { components, hooks, types };
-}
-
-export function load(root: string): [IDocInfo, IDocObject] {
+export function load(root: string): IDocInfo {
     const options: ts.CompilerOptions = {
         jsx: ts.JsxEmit.React,
         target: ts.ScriptTarget.ESNext, // Support optional chaining and async/await
@@ -91,12 +42,11 @@ export function load(root: string): [IDocInfo, IDocObject] {
         }
     }
 
-    const docs = generateDocObject(docInfo);
-    return [docInfo, docs];
+    return docInfo;
 }
 
 export function generateDocs(root: string, outputPath: string, moduleName?: string) {
-    const [docInfo, docs] = load(root);
+    const docInfo = load(root);
     if (outputPath.endsWith('/')) outputPath = outputPath.substring(0, outputPath.length - 1);
 
     createDirectories([
@@ -176,7 +126,7 @@ export function generateDocs(root: string, outputPath: string, moduleName?: stri
 }
 
 export function generateTypeDefinition(root: string, outputPath: string, moduleName: string) {
-    const [docInfo, docs] = load(root);
-    const moduleCode = generateExportModule(docs, docInfo, { moduleName: moduleName || 'module' });
+    const docInfo = load(root);
+    const moduleCode = generateExportModule(docInfo, { moduleName: moduleName || 'module' });
     writeFile(outputPath, moduleCode);
 }
