@@ -50,3 +50,61 @@ const useTest = (): CustomHook => {
  * @export
  */
 function useTest2(ct: ABC) { }
+
+/**
+ * @export
+ * Generic type for parsed search parameters, ensuring non-object values are strings.
+ */
+export type SearchParams<T> = {
+    [K in keyof T]: T[K] extends object ? T[K] : string;
+};
+
+
+/**
+ * @export
+ * Shared utility function to parse URLSearchParams into a typed object.
+ * Handles JSON-encoded values using the toJSON utility.
+ *
+ * @param params - The URLSearchParams object to parse.
+ * @returns A typed object containing the parsed search parameters.
+ *
+ * @example
+ * ```
+ * const params = new URLSearchParams('?name=John&age=30');
+ * const result = parseSearchParams<{ name: string; age: string }>(params);
+ * // result: { name: 'John', age: '30' }
+ * ```
+ *
+ * @example
+ * ```
+ * const params = new URLSearchParams('?user={"name":"John","age":30}');
+ * const result = parseSearchParams<{ user: { name: string; age: number } }>(params);
+ * // result: { user: { name: 'John', age: 30 } }
+ * ```
+ */
+function parseSearchParams<T extends Record<string, any>>(params: URLSearchParams): SearchParams<T> {
+    const result: Record<string, any> = {};
+
+    for (const [key, value] of params.entries()) {
+        if (value.startsWith('{') || value.startsWith('[')) {
+            result[key] = toJSON(value, null) || value;
+        } else {
+            result[key] = value;
+        }
+    }
+
+    return result as SearchParams<T>;
+}
+
+/**
+ * @export
+ * Generic function with type guards
+ */
+export function hasValue<T>(value: T | null | undefined, allowZero?: boolean, allowNegative?: boolean): value is NonNullable<T> {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'number') {
+        if (!allowZero && value === 0) return false;
+        if (!allowNegative && value < 0) return false;
+    }
+    return true;
+}
