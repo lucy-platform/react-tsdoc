@@ -1,4 +1,5 @@
 import * as ts from 'typescript';
+import * as path from 'path';
 import { IDocInfo, IDocObject, IComponentDocumentation, IHookDocumentation, ITypeDocumentation, ComponentFlags } from './core/types';
 import { walkTree, validateProgram, getSources } from './core/analyzer';
 import { generateComponentDocFromDocInfo, generatePropDocs } from './generators/docs/component';
@@ -11,16 +12,77 @@ import { logDebug, logError } from './utils/logger';
 import { hasExportAnnotation } from './utils/type-helpers';
 
 export function load(root: string): IDocInfo {
-    const options: ts.CompilerOptions = {
-        jsx: ts.JsxEmit.React,
-        target: ts.ScriptTarget.ESNext, // Support optional chaining and async/await
-        module: ts.ModuleKind.CommonJS,
-        strict: true,
-        skipLibCheck: true,
-    };
+    // Find the project's tsconfig.json
+    const projectDir = path.dirname(root);
+    const tsconfigPath = ts.findConfigFile(projectDir, ts.sys.fileExists, 'tsconfig.json');
+    
+    let program: ts.Program;
+    let options: ts.CompilerOptions;
+
+    if (tsconfigPath) {
+        logDebug('Loading tsconfig from', tsconfigPath);
+        
+        // Read and parse the tsconfig.json properly
+        const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+        if (configFile.error) {
+            throw new Error(`Error reading tsconfig: ${configFile.error.messageText}`);
+        }
+
+        // Parse the configuration with proper context
+        const parsedConfig = ts.parseJsonConfigFileContent(
+            configFile.config,
+            ts.sys,
+            path.dirname(tsconfigPath),
+            undefined,
+            tsconfigPath
+        );
+
+        if (parsedConfig.errors?.length) {
+            parsedConfig.errors.forEach(error => {
+                const message = typeof error.messageText === 'string' 
+                    ? error.messageText 
+                    : error.messageText.messageText;
+                
+                // Treat "No inputs were found" as a debug message since we're providing files programmatically
+                if (error.code === 18003) {
+                    logDebug('TypeScript config info:', message);
+                } else if (error.category === 0) { // Warning
+                    logDebug('TypeScript config warning:', message);
+                } else if (error.category === 1) { // Error
+                    logError('TypeScript config error:', message);
+                } else { // Info or other
+                    logDebug('TypeScript config info:', message);
+                }
+            });
+        }
+
+        options = parsedConfig.options;
+        
+        // Ensure essential options for our use case
+        options.skipLibCheck = true;
+        options.allowSyntheticDefaultImports = true;
+        options.esModuleInterop = true;
+        
+        logDebug('Using tsconfig.json compiler options with paths:', Object.keys(options.paths || {}));
+        
+        // Create program with the parsed configuration
+        program = ts.createProgram([root], options);
+    } else {
+        // Fallback to default options
+        logDebug('No tsconfig found, using default options');
+        options = {
+            jsx: ts.JsxEmit.React,
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.CommonJS,
+            strict: false,
+            skipLibCheck: true,
+            esModuleInterop: true,
+            allowSyntheticDefaultImports: true,
+        };
+        program = ts.createProgram([root], options);
+    }
 
     logDebug('Loading', root);
-    const program = ts.createProgram([root], options);
     logDebug('Compiled');
 
     const checker = program.getTypeChecker();
