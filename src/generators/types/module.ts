@@ -197,7 +197,8 @@ export function generateExportModule(docInfo: IDocInfo, options: IExportModuleOp
             const cleanCode = func.code.replace(/^\s*export\s*/, '');
             const paramsTxt = func.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
             const commentBlock = func.comment ? '\n' + func.comment + '\n' : '\n';
-            const declaration = `export type ${typeName} = (${paramsTxt}) => ${func.return};\n`;
+            const genericsStr = func.generics || '';
+            const declaration = `export type ${typeName}${genericsStr} = (${paramsTxt}) => ${func.return};\n`;
             code += indentCode(commentBlock + declaration, '    ');
             emitted.add(typeName);
         }
@@ -220,7 +221,8 @@ export function generateExportModule(docInfo: IDocInfo, options: IExportModuleOp
         if (hasExportAnnotation(f.comment)) {
             const paramsTxt = f.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
             const commentBlock = f.comment ? '\n' + f.comment + '\n' : '\n';
-            const declaration = `export function ${fname}(${paramsTxt}): ${f.return};\n`;
+            const genericsStr = f.generics || '';
+            const declaration = `export function ${fname}${genericsStr}(${paramsTxt}): ${f.return};\n`;
             code += indentCode(commentBlock + declaration, '    ');
             emitted.add(fname);
         }
@@ -231,7 +233,8 @@ export function generateExportModule(docInfo: IDocInfo, options: IExportModuleOp
         if (hasExportAnnotation(hook.comment)) {
             const paramsTxt = hook.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
             const commentBlock = hook.comment ? '\n' + hook.comment + '\n' : '\n';
-            const declaration = `export function ${hook.name}(${paramsTxt}): ${hook.type};\n`;
+            const genericsStr = hook.generics || '';
+            const declaration = `export function ${hook.name}${genericsStr}(${paramsTxt}): ${hook.type};\n`;
             code += indentCode(commentBlock + declaration, '    ');
             emitted.add(hook.name);
         }

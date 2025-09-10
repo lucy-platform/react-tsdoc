@@ -2,6 +2,13 @@ import * as ts from 'typescript';
 import { IDocInfo, IReactComponent, IFunctionParam, IReactHookParam, IInterfaceDeclaration } from './types';
 import { logCompilerMessage, logDebug, logWarning } from '../utils/logger';
 
+export function extractGenerics(node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.TypeAliasDeclaration): string | undefined {
+    if (!node.typeParameters || node.typeParameters.length === 0) return undefined;
+    
+    const generics = node.typeParameters.map(param => param.getText()).join(', ');
+    return `<${generics}>`;
+}
+
 export function extractComment(node: ts.Node): string {
     try {
         if (!node || !node.getSourceFile) return '';
@@ -262,8 +269,10 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
     if (name.startsWith('use')) {
         const parameters: IReactHookParam[] = [];
         let hookReturnType = 'void';
+        let generics: string | undefined;
 
         if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+            generics = extractGenerics(init);
             if (init.parameters) {
                 for (const param of init.parameters) {
                     const pname = param.name?.getText() || 'arg';
@@ -304,6 +313,7 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
             name,
             type: hookReturnType,
             parameters,
+            generics,
             comment
         };
         return;
@@ -318,6 +328,7 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
     }
 
     if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+        const generics = extractGenerics(init);
         const params: IFunctionParam[] = [];
         if (init.parameters) {
             for (const param of init.parameters) {
@@ -355,6 +366,7 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
         docInfo.functions[name] = {
             parameters: params,
             return: returnType,
+            generics,
             comment,
             code: getCode(decl)
         };
@@ -403,6 +415,7 @@ export function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, check
     if (!name) return;
 
     const comment = extractComment(node) || '';
+    const generics = extractGenerics(node);
     if (name.startsWith('use')) {
         const parameters: IReactHookParam[] = [];
         let hookReturnType = 'void';
@@ -432,6 +445,7 @@ export function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, check
             name,
             type: hookReturnType,
             parameters,
+            generics,
             comment
         };
         return;
@@ -460,6 +474,7 @@ export function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, check
     docInfo.functions[name] = {
         parameters: params,
         return: returnType,
+        generics,
         comment,
         code: getCode(node)
     };
@@ -489,6 +504,7 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
     const type = node.type;
     const comment = extractComment(node);
     const code = getCode(node);
+    const generics = extractGenerics(node);
 
     if (type.kind === ts.SyntaxKind.FunctionType) {
         const parameters: IFunctionParam[] = [];
@@ -506,6 +522,7 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
         docInfo.functions[name] = {
             parameters,
             return: returnType,
+            generics,
             comment,
             code
         };

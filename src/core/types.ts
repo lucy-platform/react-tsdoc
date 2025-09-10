@@ -21,6 +21,7 @@ export interface IFunctionParam {
 export interface IFunctionSignature extends ITypeDefinition {
     parameters: IFunctionParam[];
     return: string;
+    generics?: string;
     code: string;
 }
 
@@ -66,6 +67,7 @@ export interface IReactHook {
     name: string;
     type: string;
     parameters: IReactHookParam[];
+    generics?: string;
     comment: string;
 }
 
