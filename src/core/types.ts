@@ -80,6 +80,7 @@ export interface IEnumDeclaration extends ITypeDefinition {
 export interface ITypeAlias extends ITypeDefinition {
     name: string;
     type: string;
+    generics?: string;
     code: string;
 }
 

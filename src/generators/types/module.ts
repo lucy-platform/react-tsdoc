@@ -240,6 +240,17 @@ export function generateExportModule(docInfo: IDocInfo, options: IExportModuleOp
         }
     });
 
+    Object.values(docInfo.typeAliases || {}).forEach(alias => {
+        if (emitted.has(alias.name)) return;
+        if (hasExportAnnotation(alias.comment)) {
+            const cleanCode = alias.code.replace(/^\s*export\s*/, '');
+            const commentBlock = alias.comment ? '\n' + alias.comment + '\n' : '\n';
+            const declaration = `export ${cleanCode}\n`;
+            code += indentCode(commentBlock + declaration, '    ');
+            emitted.add(alias.name);
+        }
+    });
+
     if (openedModule) {
         code += `\n}\n`;
     }

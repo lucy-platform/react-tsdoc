@@ -544,6 +544,7 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
     docInfo.typeAliases[name] = {
         name,
         type: type.getText(),
+        generics,
         comment,
         code
     };
