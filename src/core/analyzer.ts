@@ -69,7 +69,7 @@ export function analyzeComponentPattern(
         }
 
         if (/\b(React\.)?ForwardRefExoticComponent\b/.test(typeText)) {
-            const frMatch = typeText.match(/<React\.RefAttributes<([^>]+)>\s*&\s*({[^}]*}|[^>]+)>/);
+            const frMatch = typeText.match(/<(?:React\.)?RefAttributes<([^>]+)>\s*&\s*([^>]+)>/);
             if (frMatch) {
                 return {
                     type: 'forwardRef',
