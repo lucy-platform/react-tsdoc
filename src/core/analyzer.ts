@@ -277,7 +277,9 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
                 for (const param of init.parameters) {
                     const pname = param.name?.getText() || 'arg';
                     const ptype = param.type ? param.type.getText() : 'any';
-                    parameters.push({ name: pname, type: ptype });
+                    const isOptional = param.questionToken !== undefined;
+                    const paramName = isOptional ? `${pname}?` : pname;
+                    parameters.push({ name: paramName, type: ptype });
                 }
             }
 
@@ -334,7 +336,9 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
             for (const param of init.parameters) {
                 const pname = param.name?.getText() || 'arg';
                 const ptype = param.type ? param.type.getText() : 'any';
-                params.push({ name: pname, type: ptype });
+                const isOptional = param.questionToken !== undefined;
+                const paramName = isOptional ? `${pname}?` : pname;
+                params.push({ name: paramName, type: ptype });
             }
         }
 
@@ -424,7 +428,9 @@ export function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, check
             for (const p of node.parameters) {
                 const pname = p.name?.getText?.() ?? 'arg';
                 let ptype = p.type ? p.type.getText() : 'any';
-                parameters.push({ name: pname, type: ptype });
+                const isOptional = p.questionToken !== undefined;
+                const paramName = isOptional ? `${pname}?` : pname;
+                parameters.push({ name: paramName, type: ptype });
             }
         }
 
@@ -456,7 +462,9 @@ export function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, check
         for (const p of node.parameters) {
             const pname = p.name?.getText?.() ?? 'arg';
             let ptype = p.type ? p.type.getText() : 'any';
-            params.push({ name: pname, type: ptype });
+            const isOptional = p.questionToken !== undefined;
+            const paramName = isOptional ? `${pname}?` : pname;
+            params.push({ name: paramName, type: ptype });
         }
     }
 
@@ -514,7 +522,9 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
             for (const param of funcType.parameters) {
                 const pname = param.name?.getText() || 'arg';
                 const ptype = param.type ? param.type.getText() : 'any';
-                parameters.push({ name: pname, type: ptype });
+                const isOptional = param.questionToken !== undefined;
+                const paramName = isOptional ? `${pname}?` : pname;
+                parameters.push({ name: paramName, type: ptype });
             }
         }
 
