@@ -7,7 +7,7 @@ export function main() {
         program
             .name('react-tsdoc')
             .description('Generate docs for React components')
-            .version('0.2.5');
+            .version('0.2.6');
 
         program
             .command('types')
