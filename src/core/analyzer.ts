@@ -277,9 +277,11 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
                 for (const param of init.parameters) {
                     const pname = param.name?.getText() || 'arg';
                     const ptype = param.type ? param.type.getText() : 'any';
-                    const isOptional = param.questionToken !== undefined;
+                    // Parameters with ? or default values are optional
+                    const isOptional = param.questionToken !== undefined || param.initializer !== undefined;
                     const paramName = isOptional ? `${pname}?` : pname;
-                    parameters.push({ name: paramName, type: ptype });
+                    const defaultValue = param.initializer ? param.initializer.getText() : undefined;
+                    parameters.push({ name: paramName, type: ptype, defaultValue });
                 }
             }
 
@@ -305,10 +307,21 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
             }
         }
 
+        let typeReference: string | undefined;
         if (declaredType) {
             const typeText = declaredType.getText();
-            const match = typeText.match(/\(\s*[^)]*\)\s*=>\s*(.+)$/);
-            hookReturnType = match ? match[1].trim() : typeText;
+            // Check if it's a simple type reference (not an inline function type)
+            const isInlineFunctionType = /\([^)]*\)\s*=>/.test(typeText);
+
+            if (isInlineFunctionType) {
+                // Inline function type: () => ReturnType
+                const match = typeText.match(/\(\s*[^)]*\)\s*=>\s*(.+)$/);
+                hookReturnType = match ? match[1].trim() : typeText;
+            } else {
+                // Simple type reference like "ToastHook" - preserve it
+                typeReference = typeText;
+                hookReturnType = typeText;
+            }
         }
 
         docInfo.hooks[name] = {
@@ -316,7 +329,8 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
             type: hookReturnType,
             parameters,
             generics,
-            comment
+            comment,
+            typeReference
         };
         return;
     }
@@ -336,20 +350,30 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
             for (const param of init.parameters) {
                 const pname = param.name?.getText() || 'arg';
                 const ptype = param.type ? param.type.getText() : 'any';
-                const isOptional = param.questionToken !== undefined;
+                // Parameters with ? or default values are optional
+                const isOptional = param.questionToken !== undefined || param.initializer !== undefined;
                 const paramName = isOptional ? `${pname}?` : pname;
-                params.push({ name: paramName, type: ptype });
+                const defaultValue = param.initializer ? param.initializer.getText() : undefined;
+                params.push({ name: paramName, type: ptype, defaultValue });
             }
         }
 
         let returnType = 'void';
+        let typeReference: string | undefined;
+
         if (declaredType) {
             const typeText = declaredType.getText();
-            if (docInfo.functions[typeText] || docInfo.typeAliases?.[typeText]) {
-                returnType = typeText;
-            } else {
+            // Check if it's a simple type reference (not an inline function type)
+            const isInlineFunctionType = /^\s*\([^)]*\)\s*=>/.test(typeText);
+
+            if (isInlineFunctionType) {
+                // Inline function type: (params) => ReturnType
                 const match = typeText.match(/^\([^)]*\)\s*=>\s*(.+)$/) || typeText.match(/=>\s*(.+)$/);
                 returnType = match ? match[1].trim() : typeText;
+            } else {
+                // Simple type reference like "TestFunction" - preserve it
+                typeReference = typeText;
+                returnType = typeText;
             }
         } else if (init.type) {
             returnType = init.type.getText();
@@ -372,7 +396,8 @@ export function parseVariableDeclaration(node: ts.Node, docInfo: IDocInfo, check
             return: returnType,
             generics,
             comment,
-            code: getCode(decl)
+            code: getCode(decl),
+            typeReference
         };
     }
 }
@@ -428,9 +453,11 @@ export function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, check
             for (const p of node.parameters) {
                 const pname = p.name?.getText?.() ?? 'arg';
                 let ptype = p.type ? p.type.getText() : 'any';
-                const isOptional = p.questionToken !== undefined;
+                // Parameters with ? or default values are optional
+                const isOptional = p.questionToken !== undefined || p.initializer !== undefined;
                 const paramName = isOptional ? `${pname}?` : pname;
-                parameters.push({ name: paramName, type: ptype });
+                const defaultValue = p.initializer ? p.initializer.getText() : undefined;
+                parameters.push({ name: paramName, type: ptype, defaultValue });
             }
         }
 
@@ -462,9 +489,11 @@ export function parseFunctionDeclaration(node: ts.Node, docInfo: IDocInfo, check
         for (const p of node.parameters) {
             const pname = p.name?.getText?.() ?? 'arg';
             let ptype = p.type ? p.type.getText() : 'any';
-            const isOptional = p.questionToken !== undefined;
+            // Parameters with ? or default values are optional
+            const isOptional = p.questionToken !== undefined || p.initializer !== undefined;
             const paramName = isOptional ? `${pname}?` : pname;
-            params.push({ name: paramName, type: ptype });
+            const defaultValue = p.initializer ? p.initializer.getText() : undefined;
+            params.push({ name: paramName, type: ptype, defaultValue });
         }
     }
 
@@ -514,31 +543,6 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
     const code = getCode(node);
     const generics = extractGenerics(node);
 
-    if (type.kind === ts.SyntaxKind.FunctionType) {
-        const parameters: IFunctionParam[] = [];
-        const funcType = type as ts.FunctionTypeNode;
-
-        if (funcType.parameters) {
-            for (const param of funcType.parameters) {
-                const pname = param.name?.getText() || 'arg';
-                const ptype = param.type ? param.type.getText() : 'any';
-                const isOptional = param.questionToken !== undefined;
-                const paramName = isOptional ? `${pname}?` : pname;
-                parameters.push({ name: paramName, type: ptype });
-            }
-        }
-
-        const returnType = funcType.type ? funcType.type.getText() : 'void';
-        docInfo.functions[name] = {
-            parameters,
-            return: returnType,
-            generics,
-            comment,
-            code
-        };
-        return;
-    }
-
     if (type.kind === ts.SyntaxKind.UnionType) {
         const unionType = type as ts.UnionTypeNode;
         const items: string[] = [];
@@ -551,6 +555,7 @@ export function parseTypeAlias(node: ts.Node, docInfo: IDocInfo) {
         return;
     }
 
+    // Store all type aliases (including function types) in typeAliases
     docInfo.typeAliases[name] = {
         name,
         type: type.getText(),

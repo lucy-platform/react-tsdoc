@@ -219,10 +219,22 @@ export function generateExportModule(docInfo: IDocInfo, options: IExportModuleOp
         if (emitted.has(fname)) return;
         const f = docInfo.functions[fname];
         if (hasExportAnnotation(f.comment)) {
-            const paramsTxt = f.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
             const commentBlock = f.comment ? '\n' + f.comment + '\n' : '\n';
-            const genericsStr = f.generics || '';
-            const declaration = `export function ${fname}${genericsStr}(${paramsTxt}): ${f.return};\n`;
+            let declaration: string;
+
+            if (f.typeReference) {
+                // Emit as const with type reference
+                declaration = `export const ${fname}: ${f.typeReference};\n`;
+            } else {
+                // Emit as function declaration
+                const paramsTxt = f.parameters.map(p => {
+                    const defaultVal = p.defaultValue ? ` = ${p.defaultValue}` : '';
+                    return `${p.name}: ${p.type}${defaultVal}`;
+                }).join(', ');
+                const genericsStr = f.generics || '';
+                declaration = `export function ${fname}${genericsStr}(${paramsTxt}): ${f.return};\n`;
+            }
+
             code += indentCode(commentBlock + declaration, '    ');
             emitted.add(fname);
         }
@@ -231,10 +243,22 @@ export function generateExportModule(docInfo: IDocInfo, options: IExportModuleOp
     Object.values(docInfo.hooks).forEach(hook => {
         if (emitted.has(hook.name)) return;
         if (hasExportAnnotation(hook.comment)) {
-            const paramsTxt = hook.parameters.map(p => `${p.name}: ${p.type}`).join(', ');
             const commentBlock = hook.comment ? '\n' + hook.comment + '\n' : '\n';
-            const genericsStr = hook.generics || '';
-            const declaration = `export function ${hook.name}${genericsStr}(${paramsTxt}): ${hook.type};\n`;
+            let declaration: string;
+
+            if (hook.typeReference) {
+                // Emit as const with type reference
+                declaration = `export const ${hook.name}: ${hook.typeReference};\n`;
+            } else {
+                // Emit as function declaration
+                const paramsTxt = hook.parameters.map(p => {
+                    const defaultVal = p.defaultValue ? ` = ${p.defaultValue}` : '';
+                    return `${p.name}: ${p.type}${defaultVal}`;
+                }).join(', ');
+                const genericsStr = hook.generics || '';
+                declaration = `export function ${hook.name}${genericsStr}(${paramsTxt}): ${hook.type};\n`;
+            }
+
             code += indentCode(commentBlock + declaration, '    ');
             emitted.add(hook.name);
         }

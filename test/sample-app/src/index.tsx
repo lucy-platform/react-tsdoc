@@ -1,6 +1,8 @@
 
 import React from 'react';
 import TestComponent01, { ABC, Type } from './components/TestComponent01';
+import useToast from './components/Toast';
+
 
 type TestFunction = (type: Type) => void;
 
@@ -13,7 +15,7 @@ interface ReturnType {
  * test function
  */
 function Test(param1: string, param2: number): ReturnType {
-
+const toast = useToast()
     return {}
 }
 
@@ -107,4 +109,25 @@ export function hasValue<T>(value: T | null | undefined, allowZero?: boolean, al
         if (!allowNegative && value < 0) return false;
     }
     return true;
+}
+
+/**
+ * @export
+ * Performs a text search with case sensitivity option
+ * 
+ * @example
+ * ```
+ * const found = textSearch('Hello World', 'world', true);
+ * console.log(found); // true
+ * ```
+ */
+export function textSearch(value: any, query: string, ignoreCase: boolean = false): boolean {
+
+    const _value = toStr(value)
+
+    if (ignoreCase) {
+        return _value?.toLowerCase().indexOf(query?.toLowerCase()) !== -1;
+    } else {
+        return _value?.indexOf(query) !== -1;
+    }
 }

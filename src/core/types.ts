@@ -16,6 +16,7 @@ export interface ITypeDefinition {
 export interface IFunctionParam {
     name: string;
     type: string;
+    defaultValue?: string;
 }
 
 export interface IFunctionSignature extends ITypeDefinition {
@@ -23,6 +24,7 @@ export interface IFunctionSignature extends ITypeDefinition {
     return: string;
     generics?: string;
     code: string;
+    typeReference?: string; // Original type annotation if present (e.g., "TestFunction")
 }
 
 export interface IUnion extends ITypeDefinition {
@@ -61,6 +63,7 @@ export interface IReactComponent {
 export interface IReactHookParam {
     name: string;
     type: string;
+    defaultValue?: string;
 }
 
 export interface IReactHook {
@@ -69,6 +72,7 @@ export interface IReactHook {
     parameters: IReactHookParam[];
     generics?: string;
     comment: string;
+    typeReference?: string; // Original type annotation if present (e.g., "ToastHook")
 }
 
 export interface IEnumDeclaration extends ITypeDefinition {
