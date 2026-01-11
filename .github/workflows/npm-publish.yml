@@ -7,6 +7,9 @@ jobs:
   npm-publish:
     name: npm-publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
     - name: Checkout repository
       uses: actions/checkout@master
@@ -26,9 +29,9 @@ jobs:
         commit_pattern: "^Release (\\S+)"
         workspace: "."
         publish_command: "npm"
+        publish_args: "--provenance --access public"
       env: # More info about the environment variables in the README
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Leave this as is, it's automatically generated
-        NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }} # You need to set this in your repo settings
     - name: Report Status
       if: always()
       uses: ravsamhq/notify-slack-action@v1
