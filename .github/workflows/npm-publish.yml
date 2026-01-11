@@ -9,13 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
+      id-token: write # This enables OIDC token for npm provenance
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # Need at least 2 commits to check the latest one
+          fetch-depth: 2
 
       - name: Check commit message
         id: check_commit
@@ -38,7 +38,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: "https://registry.npmjs.org"
+          # DO NOT set registry-url when using provenance with trusted publishers
 
       - name: Install dependencies
         if: steps.check_commit.outputs.should_publish == 'true'
@@ -60,8 +60,7 @@ jobs:
       - name: Publish to npm
         if: steps.check_commit.outputs.should_publish == 'true'
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # DO NOT set NODE_AUTH_TOKEN - OIDC handles authentication automatically
 
       - name: Report Status
         if: always() && steps.check_commit.outputs.should_publish == 'true'
