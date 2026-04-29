@@ -11,10 +11,12 @@ import { createDirectories, writeFile } from './utils/file';
 import { logDebug, logError } from './utils/logger';
 import { hasExportAnnotation } from './utils/type-helpers';
 
-export function load(root: string): IDocInfo {
+export function load(root: string, tsconfigOverride?: string): IDocInfo {
     // Find the project's tsconfig.json
     const projectDir = path.dirname(root);
-    const tsconfigPath = ts.findConfigFile(projectDir, ts.sys.fileExists, 'tsconfig.json');
+    const tsconfigPath = tsconfigOverride
+        ? path.resolve(tsconfigOverride)
+        : ts.findConfigFile(projectDir, ts.sys.fileExists, 'tsconfig.json');
     
     let program: ts.Program;
     let options: ts.CompilerOptions;
@@ -107,8 +109,8 @@ export function load(root: string): IDocInfo {
     return docInfo;
 }
 
-export function generateDocs(root: string, outputPath: string, moduleName?: string) {
-    const docInfo = load(root);
+export function generateDocs(root: string, outputPath: string, moduleName?: string, tsconfigOverride?: string) {
+    const docInfo = load(root, tsconfigOverride);
     if (outputPath.endsWith('/')) outputPath = outputPath.substring(0, outputPath.length - 1);
 
     createDirectories([
@@ -187,8 +189,8 @@ export function generateDocs(root: string, outputPath: string, moduleName?: stri
     }
 }
 
-export function generateTypeDefinition(root: string, outputPath: string, moduleName: string) {
-    const docInfo = load(root);
+export function generateTypeDefinition(root: string, outputPath: string, moduleName: string, tsconfigOverride?: string) {
+    const docInfo = load(root, tsconfigOverride);
     const moduleCode = generateExportModule(docInfo, { moduleName: moduleName || 'module' });
     writeFile(outputPath, moduleCode);
 }

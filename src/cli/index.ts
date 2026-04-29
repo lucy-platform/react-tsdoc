@@ -15,8 +15,9 @@ export function main() {
             .argument('[input.ts]', 'Input TypeScript file')
             .argument('[output.d.ts]', 'Output declaration file')
             .option('--module-name <name>', 'Module name for type definitions')
+            .option('--tsconfig <path>', 'Path to tsconfig.json (defaults to nearest tsconfig.json)')
             .action((input, output, options) => {
-                generateTypeDefinition(input, output, options.moduleName);
+                generateTypeDefinition(input, output, options.moduleName, options.tsconfig);
             });
 
         program
@@ -25,8 +26,9 @@ export function main() {
             .argument('[input.ts]', 'Input TypeScript file')
             .argument('[output-folder]', 'Output folder for documentation')
             .option('--module-name <name>', 'Module name for documentation')
+            .option('--tsconfig <path>', 'Path to tsconfig.json (defaults to nearest tsconfig.json)')
             .action((input, output, options) => {
-                generateDocs(input, output, options.moduleName);
+                generateDocs(input, output, options.moduleName, options.tsconfig);
             });
 
         program.parse(process.argv);

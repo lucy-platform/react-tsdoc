@@ -15,9 +15,10 @@ export function getExportInfo(node: ts.Node): IExportInfo {
     const sourceFile = node.getSourceFile();
     const exportInfo: IExportInfo = { isDefault: false, isNamed: false };
 
-    if (node.modifiers) {
-        const hasExport = node.modifiers.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword);
-        const hasDefault = node.modifiers.some(mod => mod.kind === ts.SyntaxKind.DefaultKeyword);
+    const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+    if (modifiers) {
+        const hasExport = modifiers.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword);
+        const hasDefault = modifiers.some(mod => mod.kind === ts.SyntaxKind.DefaultKeyword);
         if (hasExport && hasDefault) {
             exportInfo.isDefault = true;
         } else if (hasExport) {

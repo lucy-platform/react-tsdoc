@@ -25,6 +25,37 @@ export function extractTypesFromComplex(comp: IReactComponent, docInfo: IDocInfo
     };
 }
 
+/**
+ * Render a single @example block's content.
+ * Content may contain: optional title text, one or more code fences, and trailing text.
+ * Text segments are rendered as level-4 headings; code fences as code blocks.
+ *
+ * Example source shape that triggers the split:
+ *   @example Title for first snippet:
+ *   ```
+ *   <Foo />
+ *   ```
+ *
+ *   Title for next snippet:   ← ends up appended to this block by TSDoc
+ */
+function renderExampleContent(md: MarkdownBuilder, content: string): void {
+    // Match each ``` ... ``` fence (non-greedy, dotall)
+    const FENCE_RE = /```[\s\S]*?```/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = FENCE_RE.exec(content)) !== null) {
+        const textBefore = content.substring(lastIndex, match.index).trim().replace(/:$/, '');
+        if (textBefore) md.addTitle(textBefore, 4);
+        md.addCode(match[0]);
+        lastIndex = match.index + match[0].length;
+    }
+
+    // Any text after the last code fence (e.g. title of the next @example block)
+    const trailing = content.substring(lastIndex).trim().replace(/:$/, '');
+    if (trailing) md.addTitle(trailing, 4);
+}
+
 export function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: IDocInfo, moduleName?: string, dependentTypes?: Set<string>) {
     const md = new MarkdownBuilder();
     const [summary, examples] = parseTSDocComment(comp.comment);
@@ -43,7 +74,7 @@ export function generateComponentDocFromDocInfo(comp: IReactComponent, docInfo: 
     if (examples.length > 0) {
         md.addTitle('Examples', 2);
         for (const example of examples) {
-            md.addCode(example.summary);
+            renderExampleContent(md, example.summary);
         }
     }
 
